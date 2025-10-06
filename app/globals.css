@@ -9,3 +9,9 @@ body { @apply bg-gray-50 text-gray-900; }
 .btn-primary { @apply bg-black text-white border-black hover:bg-gray-900; }
 .input { @apply w-full rounded-xl border border-gray-300 px-3 py-2; }
 .label { @apply block text-sm font-medium text-gray-700 mb-1; }
+
+
+/* globals.css (recommended) */
+@import 'swiper/css';
+@import 'swiper/css/navigation';
+@import 'swiper/css/pagination';
