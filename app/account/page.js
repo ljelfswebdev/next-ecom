@@ -172,21 +172,27 @@ export default function AccountPage(){
       </div>
 
       {/* Orders */}
+{/* Orders */}
       <div className="card">
         <h2 className="font-semibold mb-3">Past orders</h2>
         {orders.length===0 ? <div>No orders yet.</div> : (
           <ul className="divide-y">
             {orders.map(o=>(
-              <li key={o._id} className="py-3 flex items-center justify-between">
+              <li key={o._id} className="py-3 flex items-center justify-between gap-3">
                 <div>
                   <div className="font-mono text-xs break-all">{o._id}</div>
                   <div className="text-sm text-gray-500">{new Date(o.createdAt).toLocaleString()}</div>
                 </div>
-                <div className="text-right">
-                  <div className="font-semibold">
-                    {fmt(o.totals?.grandTotalDisplay ?? o.totals?.grandTotalGBP, o.currency || 'GBP')}
+                <div className="flex items-center gap-3">
+                  <div className="text-right">
+                    <div className="font-semibold">
+                      {(o.totals?.grandTotalDisplay ?? o.totals?.grandTotalGBP)?.toLocaleString(
+                        undefined, { style:'currency', currency: o.currency || 'GBP' }
+                      )}
+                    </div>
+                    <div className="text-sm capitalize">{o.status}</div>
                   </div>
-                  <div className="text-sm capitalize">{o.status}</div>
+                  <a className="btn" href={`/account/orders/${o._id}`}>View</a>
                 </div>
               </li>
             ))}

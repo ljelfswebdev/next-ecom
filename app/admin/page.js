@@ -13,6 +13,7 @@ export default async function AdminPage(){
         <Link href="/admin/products" className="card hover:bg-gray-50">Products</Link>
         <Link href="/admin/settings" className="card hover:bg-gray-50">Settings</Link>
         <Link href="/admin/orders" className="card hover:bg-gray-50">Orders</Link>
+        <Link href="/admin/reviews" className="card hover:bg-gray-50">Reviews</Link>
       </div>
     </div>
   );

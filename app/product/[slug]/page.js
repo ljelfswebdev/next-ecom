@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { Swiper, SwiperSlide } from 'swiper/react';
 import { Navigation, Pagination } from 'swiper/modules';
+import { ProductReviews } from '@/app/components/product/reviews';
 // If you didn't import in globals.css, uncomment these 3 lines:
 // import 'swiper/css';
 // import 'swiper/css/navigation';
@@ -65,6 +66,7 @@ const addToCart = () => {
   const hasGallery = (product.images?.length || 0) > 1;
 
   return (
+    <>
     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
       {/* GALLERY */}
       <div>
@@ -162,5 +164,8 @@ const addToCart = () => {
         </div>
       </div>
     </div>
+
+    <ProductReviews slug={slug} />
+    </>
   );
 }

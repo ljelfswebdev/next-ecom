@@ -10,3 +10,4 @@ const SettingsSchema = new mongoose.Schema({
   storeName: String,
 },{ timestamps:true });
 export default mongoose.models.Settings || mongoose.model('Settings', SettingsSchema);
+

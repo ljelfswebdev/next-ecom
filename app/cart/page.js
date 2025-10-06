@@ -11,11 +11,12 @@ export default function CartPage(){
   const [items, setItems] = useState([]);
   const [currency, setCurrency] = useState('GBP');
   const [zone, setZone] = useState('UK');
-  const [vatPercent, setVatPercent] = useState(20); // default
+  const [vatPercent, setVatPercent] = useState(20);
+  const [fx, setFx] = useState({ GBP:1, EUR:1.15, USD:1.28 });
+  const [shippingTable, setShippingTable] = useState({}); // { UK:{GBP,EUR,USD}, EU:{...}, USA:{...} }
   const [status, setStatus] = useState('');
 
   // checkout UX mode
-  // 'account' if logged in, 'guest' for guest checkout, 'login' to show inline login
   const [mode, setMode] = useState('guest');
 
   // guest / account form state
@@ -30,15 +31,23 @@ export default function CartPage(){
   const [loginPassword, setLoginPassword] = useState('');
   const [loggingIn, setLoggingIn] = useState(false);
 
-  // load cart + VAT + prefill from account (if logged in)
+  // load cart + SETTINGS + prefill from account (if logged in)
   useEffect(() => {
+    // cart
     setItems(JSON.parse(localStorage.getItem('cart') || '[]'));
 
-    fetch('/api/settings').then(r => r.json()).then(s => {
-      if (typeof s?.vatPercent === 'number') setVatPercent(s.vatPercent);
-    }).catch(()=>{});
+    // settings (public)
+    (async () => {
+      try {
+        const r = await fetch('/api/settings', { cache: 'no-store' });
+        const s = await r.json();
+        if (typeof s?.vatPercent === 'number') setVatPercent(s.vatPercent);
+        if (s?.fx) setFx(s.fx);
+        if (s?.shipping) setShippingTable(s.shipping);
+      } catch {}
+    })();
 
-    // if logged in, switch mode and prefill from account
+    // account prefill
     const primeFromAccount = async ()=>{
       try {
         const r = await fetch('/api/me', { cache:'no-store' });
@@ -55,11 +64,8 @@ export default function CartPage(){
       } catch {}
     };
 
-    if (session?.user) {
-      primeFromAccount();
-    } else {
-      setMode('guest'); // default when not logged in
-    }
+    if (session?.user) setTimeout(primeFromAccount, 0);
+    else setMode('guest');
   }, [session?.user]);
 
   // cart actions
@@ -78,26 +84,54 @@ export default function CartPage(){
     localStorage.setItem('cart', JSON.stringify(c));
   };
 
-  // pricing helpers (keep your logic)
-  const itemVat = (it) =>
-    typeof it.vatPercent === 'number' ? it.vatPercent : vatPercent;
+  // FX helpers
+  const fxRate = useMemo(() => fx?.[currency] ?? 1, [fx, currency]);
+  const toDisplay = (gbp) => +(gbp * fxRate).toFixed(2);
 
-  const unitInc = (it) =>
-    +(((it.unitPriceExVatGBP || 0) * (1 + itemVat(it) / 100))).toFixed(2);
+  // pricing helpers (GBP baseline)
+  const itemVat = (it) => (typeof it.vatPercent === 'number' ? it.vatPercent : vatPercent);
+  const unitExGBP = (it) => (it.unitPriceExVatGBP || 0);
+  const unitIncGBP = (it) => +((unitExGBP(it) * (1 + itemVat(it) / 100))).toFixed(2);
 
-  const lineEx = (it) =>
-    +(((it.unitPriceExVatGBP || 0) * (it.qty || 1))).toFixed(2);
+  // in selected currency
+  const unitExDisp = (it) => toDisplay(unitExGBP(it));
+  const unitIncDisp = (it) => toDisplay(unitIncGBP(it));
+  const lineExGBP  = (it) => +((unitExGBP(it) * (it.qty || 1))).toFixed(2);
+  const lineIncGBP = (it) => +((unitIncGBP(it) * (it.qty || 1))).toFixed(2);
+  const lineExDisp  = (it) => toDisplay(lineExGBP(it));
+  const lineIncDisp = (it) => toDisplay(lineIncGBP(it));
 
-  const lineInc = (it) =>
-    +((unitInc(it) * (it.qty || 1))).toFixed(2);
-
-  // totals
-  const subtotalEx = useMemo(
-    () => items.reduce((a,b)=> a + (b.unitPriceExVatGBP || 0) * (b.qty || 1), 0),
+  // totals (GBP baseline)
+  const subtotalExGBP = useMemo(
+    () => items.reduce((a,b)=> a + (unitExGBP(b) * (b.qty || 1)), 0),
     [items]
   );
-  const vatAmount = useMemo(() => +(subtotalEx * (vatPercent/100)).toFixed(2), [subtotalEx, vatPercent]);
-  const totalInc = useMemo(() => +(subtotalEx + vatAmount).toFixed(2), [subtotalEx, vatAmount]);
+  const vatAmountGBP = useMemo(
+    () => +(subtotalExGBP * (vatPercent/100)).toFixed(2),
+    [subtotalExGBP, vatPercent]
+  );
+
+  // shipping: prefer explicit amount for zone+currency; fallback to converting GBP
+  const shippingGBPBase = useMemo(() => {
+    const val = shippingTable?.[zone]?.GBP;
+    return typeof val === 'number' ? val : 0;
+  }, [shippingTable, zone]);
+
+  const shippingDisp = useMemo(() => {
+    const explicit = shippingTable?.[zone]?.[currency];
+    if (typeof explicit === 'number') return +explicit.toFixed(2);
+    return toDisplay(shippingGBPBase);
+  }, [shippingTable, zone, currency, shippingGBPBase, fxRate]);
+
+  const totalIncGBP = useMemo(
+    () => +(subtotalExGBP + vatAmountGBP + shippingGBPBase).toFixed(2),
+    [subtotalExGBP, vatAmountGBP, shippingGBPBase]
+  );
+
+  // display currency totals: compute from parts (not by converting the grand total) for clarity
+  const subtotalExDisp = toDisplay(subtotalExGBP);
+  const vatAmountDisp  = toDisplay(vatAmountGBP);
+  const totalIncDisp   = +(subtotalExDisp + vatAmountDisp + shippingDisp).toFixed(2);
 
   const fmt = (n) => n.toLocaleString(undefined, { style:'currency', currency });
 
@@ -107,23 +141,16 @@ export default function CartPage(){
     setStatus('');
     const res = await signIn('credentials', { redirect:false, email: loginEmail, password: loginPassword });
     setLoggingIn(false);
-    if (res?.ok) {
-      // session effect will prefill + set mode('account')
-      setLoginPassword('');
-    } else {
-      setStatus('Login failed. Check email/password.');
-    }
+    if (res?.ok) setLoginPassword('');
+    else setStatus('Login failed. Check email/password.');
   };
 
   // checkout
   const checkout = async ()=>{
     setStatus('Processing...');
-
-    // choose address payload
     const bill = billing;
     const ship = sameAsBilling ? billing : shipping;
     const orderEmail = email;
-
     if (!orderEmail) { setStatus('Enter an email.'); return; }
 
     const r = await fetch('/api/orders', {
@@ -137,7 +164,7 @@ export default function CartPage(){
         zone,
         billingAddress: bill,
         shippingAddress: ship,
-        saveToAccount: !!session?.user, // if logged in, let API update profile addresses too
+        saveToAccount: !!session?.user,
       })
     });
     if(r.ok){
@@ -192,12 +219,12 @@ export default function CartPage(){
                       </span>
                     </div>
 
-                    {/* per-item prices */}
+                    {/* per-item prices in selected currency */}
                     <div className="text-xs text-gray-500 mt-1">
-                      Unit: {fmt(it.unitPriceExVatGBP || 0)} ex VAT • {fmt(unitInc(it))} inc VAT
+                      Unit: {fmt(unitExDisp(it))} ex VAT • {fmt(unitIncDisp(it))} inc VAT
                     </div>
                     <div className="text-xs text-gray-500">
-                      Line: {fmt(lineEx(it))} ex VAT • {fmt(lineInc(it))} inc VAT
+                      Line: {fmt(lineExDisp(it))} ex VAT • {fmt(lineIncDisp(it))} inc VAT
                     </div>
                   </div>
                 </div>
@@ -211,19 +238,23 @@ export default function CartPage(){
 
       {/* Summary / Checkout */}
       <div className="card space-y-4">
-        {/* Totals */}
+        {/* Totals in selected currency */}
         <div className="border rounded-xl p-3 space-y-1 text-sm">
           <div className="flex justify-between">
             <span>Subtotal (ex VAT)</span>
-            <span className="font-medium">{fmt(subtotalEx)}</span>
+            <span className="font-medium">{fmt(subtotalExDisp)}</span>
           </div>
           <div className="flex justify-between">
             <span>VAT ({vatPercent}%)</span>
-            <span className="font-medium">{fmt(vatAmount)}</span>
+            <span className="font-medium">{fmt(vatAmountDisp)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Delivery</span>
+            <span className="font-medium">{fmt(shippingDisp)}</span>
           </div>
           <div className="flex justify-between text-base pt-1 border-t mt-1">
             <span className="font-semibold">Total (inc VAT)</span>
-            <span className="font-semibold">{fmt(totalInc)}</span>
+            <span className="font-semibold">{fmt(totalIncDisp)}</span>
           </div>
         </div>
 
