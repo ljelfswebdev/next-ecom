@@ -1,15 +1,30 @@
-
 import { dbConnect } from '@/lib/db';
 import User from '@/models/User';
-import { hash } from 'bcryptjs';
+import bcrypt from 'bcryptjs';
 
 export async function POST(req) {
-  const { email, password, name } = await req.json();
-  if (!email || !password) return new Response('Missing fields', { status: 400 });
   await dbConnect();
+  const body = await req.json();
+  const { name, email, password, billing, shipping, shipSame } = body;
+
+  if (!email || !password) {
+    return new Response('Email and password required', { status: 400 });
+  }
+
   const exists = await User.findOne({ email });
-  if (exists) return new Response('Email in use', { status: 400 });
-  const passwordHash = await hash(password, 10);
-  await User.create({ email, passwordHash, name, role: 'customer' });
-  return new Response(JSON.stringify({ ok: true }), { status: 201 });
+  if (exists) return new Response('Email already in use', { status: 409 });
+
+  const passwordHash = await bcrypt.hash(password, 10);
+  const doc = {
+    name: name || '',
+    email,
+    passwordHash,
+    addresses: {
+      billing: billing || null,
+      shipping: shipSame ? (billing || null) : (shipping || null),
+    },
+  };
+
+  const user = await User.create(doc);
+  return new Response(JSON.stringify({ id: user._id }), { status: 201 });
 }

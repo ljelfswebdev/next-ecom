@@ -38,27 +38,30 @@ export default function AdminOrdersPage() {
     const s = (v ?? '').toString();
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   }
-  function orderToRow(o) {
-    const itemsCount = o.items?.reduce((a, b) => a + (b.qty || 0), 0) || 0;
-    const itemTitles = (o.items || []).map(i => i.title).join(' | ');
-    const subtotal = o.totals?.subtotalExVatGBP ?? 0;
-    const vatTotal = o.totals?.vatTotalGBP ?? 0;
-    const shipping = o.totals?.shippingGBP ?? 0;
-    const grand = (o.totals?.grandTotalDisplay ?? o.totals?.grandTotalGBP ?? 0);
-    return [
-      o._id,
-      new Date(o.createdAt).toISOString(),
-      o.email || '',
-      o.status || '',
-      o.currency || 'GBP',
-      itemsCount,
-      subtotal,
-      vatTotal,
-      shipping,
-      grand,
-      itemTitles
-    ];
-  }
+function orderToRow(o) {
+  const itemsCount = o.items?.reduce((a,b)=>a+(b.qty||0), 0) || 0;
+  const itemTitles = (o.items || []).map(i => i.title).join(' | ');
+  const b = o.billingAddress || {}; const s = o.shippingAddress || {};
+  const subtotal = o.totals?.subtotalExVatGBP ?? 0;
+  const vatTotal = o.totals?.vatTotalGBP ?? 0;
+  const shipping = o.totals?.shippingGBP ?? 0;
+  const grand = (o.totals?.grandTotalDisplay ?? o.totals?.grandTotalGBP ?? 0);
+
+  return [
+    o._id,
+    new Date(o.createdAt).toISOString(),
+    o.customerEmail || o.email || '',
+    o.customerName || '',
+    o.customerId || '',
+    o.status || '',
+    o.currency || 'GBP',
+    itemsCount,
+    subtotal, vatTotal, shipping, grand,
+    b.fullName||'', b.line1||'', b.line2||'', b.city||'', b.region||'', b.postcode||'', b.country||'', b.phone||'',
+    s.fullName||'', s.line1||'', s.line2||'', s.city||'', s.region||'', s.postcode||'', s.country||'', s.phone||'',
+    itemTitles
+  ];
+}
 
   async function exportCSV() {
     // fetch ALL pages with current filters
@@ -81,9 +84,13 @@ export default function AdminOrdersPage() {
     }
 
     const header = [
-      'order_id','created_at','email','status','currency',
-      'items_count','subtotal_ex_vat_gbp','vat_total_gbp',
-      'shipping_gbp','grand_total_display','items_titles'
+    'order_id','created_at','email','customer_name','customer_id','status','currency',
+    'items_count','subtotal_ex_vat_gbp','vat_total_gbp','shipping_gbp','grand_total_display',
+    // billing
+    'bill_name','bill_line1','bill_line2','bill_city','bill_region','bill_postcode','bill_country','bill_phone',
+    // shipping
+    'ship_name','ship_line1','ship_line2','ship_city','ship_region','ship_postcode','ship_country','ship_phone',
+    'items_titles'
     ];
     const rows = [header, ...all.map(orderToRow)];
     const csv = rows.map(r => r.map(csvEscape).join(',')).join('\n');

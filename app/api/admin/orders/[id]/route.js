@@ -1,32 +1,44 @@
-import { dbConnect } from '@/lib/db';
-import Order from '@/models/Order';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import mongoose from 'mongoose';
-
-async function assertStaff() {
-  const session = await getServerSession(authOptions);
-  if (!session || (session.user.role !== 'admin' && session.user.role !== 'staff')) {
-    return { res: new Response('Forbidden', { status: 403 }) };
-  }
-  return {};
-}
+import { dbConnect } from '@/lib/db';
+import Order from '@/models/Order';
+import User from '@/models/User';
 
 export async function GET(_req, { params }) {
-  const guard = await assertStaff(); if (guard.res) return guard.res;
+  const session = await getServerSession(authOptions);
+  if (!session?.user || session.user.role !== 'admin') {
+    return new Response('Forbidden', { status: 403 });
+  }
+
   await dbConnect();
-  if (!mongoose.Types.ObjectId.isValid(params.id)) return new Response('Invalid id', { status: 400 });
   const order = await Order.findById(params.id).lean();
   if (!order) return new Response('Not found', { status: 404 });
-  return new Response(JSON.stringify(order), { status: 200 });
+
+  let customer = null;
+  if (order.userId) {
+    customer = await User.findById(order.userId)
+      .select('name email addresses')
+      .lean();
+  }
+
+  return Response.json({ order, customer });
 }
 
+// Optional: allow status updates from admin
 export async function PATCH(req, { params }) {
-  const guard = await assertStaff(); if (guard.res) return guard.res;
+  const session = await getServerSession(authOptions);
+  if (!session?.user || session.user.role !== 'admin') {
+    return new Response('Forbidden', { status: 403 });
+  }
+
+  const body = await req.json(); // { status?: 'created'|'paid'|'shipped'|'cancelled', note?: string }
   await dbConnect();
-  if (!mongoose.Types.ObjectId.isValid(params.id)) return new Response('Invalid id', { status: 400 });
-  const body = await req.json();
-  const updated = await Order.findByIdAndUpdate(params.id, body, { new: true });
-  if (!updated) return new Response('Not found', { status: 404 });
-  return new Response(JSON.stringify(updated), { status: 200 });
+  const order = await Order.findByIdAndUpdate(
+    params.id,
+    { $set: body },
+    { new: true }
+  ).lean();
+
+  if (!order) return new Response('Not found', { status: 404 });
+  return Response.json(order);
 }
