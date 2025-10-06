@@ -1,0 +1,1 @@
+export default function AccountPage(){return <div className='card'><h1 className='text-xl font-semibold'>Account</h1><p className='text-gray-600'>Order history, addresses, wishlist, reviews — coming next.</p></div>}

@@ -1,0 +1,43 @@
+# dependencies
+node_modules/
+.pnpm-store/
+npm-debug.log*
+
+# build output
+.next/
+out/
+dist/
+build/
+
+# environment
+.env
+.env.local
+.env.development.local
+.env.production.local
+.env.test.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# misc
+coverage/
+*.log
+*.tmp
+*.cache
+*.pid
+*.seed
+*.tgz
+
+# Cloudinary uploads (if any temp)
+uploads/
+
+# lock files (optional if using only one package manager)
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
