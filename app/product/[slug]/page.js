@@ -36,14 +36,14 @@ const addToCart = () => {
   const cart = JSON.parse(localStorage.getItem('cart') || '[]');
   const thumb = product.images?.[0] || '';
 
-  cart.push({
-    productId: product._id,
-    title: product.title,
-    qty,
-    variant: { size, color },
-    unitPriceExVatGBP: product.basePriceExVat || 0,
-    image: thumb,                // ✅ add this
-  });
+cart.push({
+  productId: product._id,
+  title: product.title,
+  qty,
+  variant: { size, color },
+  unitPriceExVatGBP: product.basePriceExVat || 0,
+  image: product.images?.[0] || ''   // ✅ add this
+});
 
   localStorage.setItem('cart', JSON.stringify(cart));
   alert('Added to cart');

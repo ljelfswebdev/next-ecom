@@ -10,11 +10,13 @@ export default async function AdminPage(){
     <div className="space-y-4">
       <h1 className="text-2xl font-semibold">Admin</h1>
       <div className="grid sm:grid-cols-2 gap-4">
+        <Link href="/admin/categories" className="card hover:bg-gray-50">Product Categories</Link>
         <Link href="/admin/products" className="card hover:bg-gray-50">Products</Link>
         <Link href="/admin/settings" className="card hover:bg-gray-50">Settings</Link>
         <Link href="/admin/orders" className="card hover:bg-gray-50">Orders</Link>
         <Link href="/admin/reviews" className="card hover:bg-gray-50">Reviews</Link>
         <Link href="/admin/pages" className="card hover:bg-gray-50">Pages</Link>
+        
       </div>
     </div>
   );

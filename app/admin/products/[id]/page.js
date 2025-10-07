@@ -1,3 +1,4 @@
+// app/admin/products/[id]/page.js
 'use client';
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
@@ -21,26 +22,46 @@ async function uploadToCloudinary(file) {
 export default function EditProductPage(){
   const { id } = useParams();
   const router = useRouter();
+
   const [form, setForm] = useState(null);
+  const [cats, setCats] = useState([]);            // ← categories list
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
 
+  // load product + categories
   useEffect(()=>{
+    let cancelled = false;
     (async ()=>{
-      const r = await fetch(`/api/admin/products/${id}`);
-      if (!r.ok) { alert('Failed to load product'); return; }
-      const p = await r.json();
-      setForm({
-        title: p.title || '',
-        slug: p.slug || '',
-        description: p.description || '',
-        basePriceExVat: p.basePriceExVat || 0,
-        images: (p.images||[]).map(u => ({ url: u })), // normalize for UI
-        sizesAvailable: p.sizesAvailable || [],
-        colorsAvailable: p.colorsAvailable || [],
-        status: p.status || 'published',
-      });
+      try {
+        const [rProd, rCats] = await Promise.all([
+          fetch(`/api/admin/products/${id}`, { cache:'no-store' }),
+          fetch('/api/admin/categories', { cache:'no-store' }),
+        ]);
+        if (!rProd.ok) throw new Error('Failed to load product');
+        const p = await rProd.json();
+        const catList = rCats.ok ? await rCats.json() : [];
+        if (cancelled) return;
+
+        setCats(Array.isArray(catList) ? catList : []);
+        setForm({
+          title: p.title || '',
+          slug: p.slug || '',
+          description: p.description || '',
+          basePriceExVat: p.basePriceExVat || 0,
+          images: (p.images||[]).map(u => ({ url: typeof u === 'string' ? u : u.url })), // normalize
+          sizesAvailable: p.sizesAvailable || [],
+          colorsAvailable: p.colorsAvailable || [],
+          categoryIds: Array.isArray(p.categoryIds) ? p.categoryIds : [],                // ← bring in
+          status: p.status || 'published',
+        });
+      } catch (e) {
+        alert(e.message || 'Error loading data');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     })();
+    return ()=>{ cancelled = true; };
   }, [id]);
 
   function toggleArrayValue(key, value) {
@@ -77,7 +98,10 @@ export default function EditProductPage(){
   async function save(){
     setSaving(true);
     try {
-      const payload = { ...form, images: (form.images||[]).map(i => i.url ?? i) };
+      const payload = {
+        ...form,
+        images: (form.images||[]).map(i => i.url ?? i),
+      };
       const r = await fetch(`/api/admin/products/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -92,7 +116,7 @@ export default function EditProductPage(){
     }
   }
 
-  if (!form) return <div>Loading…</div>;
+  if (loading || !form) return <div className="card">Loading…</div>;
 
   return (
     <div className="card max-w-3xl mx-auto">
@@ -137,6 +161,40 @@ export default function EditProductPage(){
               </label>
             ))}
           </div>
+        </div>
+
+        {/* Categories */}
+        <div>
+          <label className="label">Categories</label>
+          {cats.length === 0 ? (
+            <p className="text-sm text-gray-500">No categories yet. Create some in Admin → Categories.</p>
+          ) : (
+            <div className="grid grid-cols-2 gap-2">
+              {cats.map(c => (
+                <label key={c._id} className="flex items-center gap-2 text-sm border rounded-md px-2 py-1">
+                  <input
+                    type="checkbox"
+                    checked={(form.categoryIds||[]).includes(c._id)}
+                    onChange={() => toggleArrayValue('categoryIds', c._id)}
+                  />
+                  {c.title}
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Status */}
+        <div>
+          <label className="label">Status</label>
+          <select
+            className="input"
+            value={form.status}
+            onChange={(e)=>setForm({...form, status: e.target.value})}
+          >
+            <option value="published">Published</option>
+            <option value="draft">Draft</option>
+          </select>
         </div>
 
         {/* Images */}
