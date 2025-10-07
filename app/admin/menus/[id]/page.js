@@ -1,54 +1,56 @@
 'use client';
 import { useEffect, useState } from 'react';
 
-export default function AdminMenuEditPage({ params }) {
+export default function AdminMenuEditPage({ params }){
   const { id } = params;
-  const [menu, setMenu] = useState(null);
-  const [pages, setPages] = useState([]);
+  const [menu,setMenu] = useState(null);
+  const [pages,setPages] = useState([]);
 
-  // Load menu + published pages
-  useEffect(() => {
-    (async () => {
+  useEffect(()=>{
+    (async ()=>{
       const [rM, rP] = await Promise.all([
-        fetch(`/api/admin/menus/${id}`, { cache: 'no-store' }),
-        fetch(`/api/admin/pages?status=published`, { cache: 'no-store' }).catch(() => null),
+        fetch(`/api/admin/menus/${id}`, { cache:'no-store' }),
+        fetch(`/api/admin/pages?status=published`, { cache:'no-store' }).catch(()=>null),
       ]);
       if (rM.ok) setMenu(await rM.json());
       if (rP?.ok) setPages(await rP.json());
     })();
-  }, [id]);
+  },[id]);
 
-  // Save/Delete
-  const save = async () => {
+  const save = async ()=>{
     const r = await fetch(`/api/admin/menus/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(menu),
+      method:'PATCH', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(menu)
     });
     if (r.ok) alert('Saved'); else alert('Save failed');
   };
-  const del = async () => {
+
+  const del = async ()=>{
     if (!confirm('Delete this menu?')) return;
-    const r = await fetch(`/api/admin/menus/${id}`, { method: 'DELETE' });
+    const r = await fetch(`/api/admin/menus/${id}`, { method:'DELETE' });
     if (r.ok) window.location.href = '/admin/menus';
   };
 
-  // Tree helpers
-  const addItem = (parentPath = null, initial = null) => {
-    const newItem = initial || { type: 'custom', label: 'New link', href: '/', target: '_self', children: [] };
-    setMenu(m => {
+  /** ---------- item ops ---------- */
+  const addItem = (parentPath=null, item=null)=>{
+    const newItem = item || { label:'(untitled)', type:'custom', href:'#', target:'_self', children:[] };
+    setMenu(m=>{
       const copy = structuredClone(m);
-      const bucket = parentPath ? getPath(copy.items, parentPath).children ?? [] : copy.items;
-      if (parentPath && !getPath(copy.items, parentPath).children) {
-        getPath(copy.items, parentPath).children = bucket;
+      const bucket = parentPath ? getPath(copy.items, parentPath).children : copy.items;
+      if (!Array.isArray(bucket)) {
+        // If parentPath points to a node (not its children), use its children
+        const node = getPath(copy.items, parentPath);
+        node.children = node.children || [];
+        node.children.push(newItem);
+      } else {
+        bucket.push(newItem);
       }
-      bucket.push(newItem);
       return copy;
     });
   };
 
-  const updateItem = (path, patch) => {
-    setMenu(m => {
+  const updateItem = (path, patch)=>{
+    setMenu(m=>{
       const copy = structuredClone(m);
       const node = getPath(copy.items, path);
       Object.assign(node, patch);
@@ -56,39 +58,51 @@ export default function AdminMenuEditPage({ params }) {
     });
   };
 
-  const removeItem = (path) => {
-    setMenu(m => {
+  const removeItem = (path)=>{
+    setMenu(m=>{
       const copy = structuredClone(m);
       removeAtPath(copy.items, path);
       return copy;
     });
   };
 
-  const makeChild = (path) => {
-    setMenu(m => {
+  const makeChild = (path)=>{ // indent: move under previous sibling
+    setMenu(m=>{
       const copy = structuredClone(m);
       const parentArr = getParent(copy.items, path);
       const idx = path.at(-1);
       if (idx <= 0) return m;
-      const prev = parentArr[idx - 1];
+      const prev = parentArr[idx-1];
       if (!prev.children) prev.children = [];
-      const [moved] = parentArr.splice(idx, 1);
+      const [moved] = parentArr.splice(idx,1);
       prev.children.push(moved);
       return copy;
     });
   };
 
-  const makeSibling = (path) => {
-    setMenu(m => {
+  const makeSibling = (path)=>{ // outdent: move up a level
+    setMenu(m=>{
       const copy = structuredClone(m);
       const parentArr = getParent(copy.items, path);
       const idx = path.at(-1);
-      const parentPath = path.slice(0, -1);
+      const parentPath = path.slice(0,-1);
       if (parentPath.length === 0) return m; // already root
       const grandParentArr = getParent(copy.items, parentPath);
       const parentIndex = parentPath.at(-1);
-      const [moved] = parentArr.splice(idx, 1);
-      grandParentArr.splice(parentIndex + 1, 0, moved);
+      const [moved] = parentArr.splice(idx,1);
+      grandParentArr.splice(parentIndex+1, 0, moved);
+      return copy;
+    });
+  };
+
+  const moveItem = (path, dir)=>{ // dir = -1 up, +1 down
+    setMenu(m=>{
+      const copy = structuredClone(m);
+      const arr = getParent(copy.items, path);
+      const i = path.at(-1);
+      const j = i + dir;
+      if (j < 0 || j >= arr.length) return m;
+      [arr[i], arr[j]] = [arr[j], arr[i]];
       return copy;
     });
   };
@@ -108,15 +122,15 @@ export default function AdminMenuEditPage({ params }) {
       <div className="card grid sm:grid-cols-3 gap-3">
         <div className="sm:col-span-2">
           <label className="label">Title</label>
-          <input className="input" value={menu.title || ''} onChange={e => setMenu({ ...menu, title: e.target.value })} />
+          <input className="input" value={menu.title} onChange={e=>setMenu({...menu, title:e.target.value})} />
         </div>
         <div>
           <label className="label">Slug</label>
-          <input className="input" value={menu.slug || ''} onChange={e => setMenu({ ...menu, slug: e.target.value.replace(/\s+/g, '-').toLowerCase() })} />
+          <input className="input" value={menu.slug} onChange={e=>setMenu({...menu, slug:e.target.value.replace(/\s+/g,'-').toLowerCase()})} />
         </div>
         <div>
           <label className="label">Status</label>
-          <select className="input" value={menu.status || 'published'} onChange={e => setMenu({ ...menu, status: e.target.value })}>
+          <select className="input" value={menu.status} onChange={e=>setMenu({...menu, status:e.target.value})}>
             <option value="published">Published</option>
             <option value="draft">Draft</option>
           </select>
@@ -129,186 +143,147 @@ export default function AdminMenuEditPage({ params }) {
           <div className="flex gap-2">
             <button
               className="btn"
-              onClick={() => {
-                // if there are pages, add a page item seeded with the first page
-                const first = pages[0];
-                if (first) addItem(null, pageItemFrom(first));
-                else addItem(null); // fallback to custom if no pages yet
-              }}
+              onClick={()=>addItem(null, {
+                label: pages[0]?.title || '(untitled)',
+                type:'page',
+                pageId: pages[0]?._id,
+                pageSlug: pages[0] ? `pages/${pages[0].slug.replace(/^\/+/,'')}` : '',
+                href: pages[0] ? `pages/${pages[0].slug.replace(/^\/+/,'')}` : '',
+                target:'_self',
+                children:[]
+              })}
+              disabled={!pages.length}
             >
               + Add page
             </button>
-            <button className="btn" onClick={() => addItem(null)}>+ Add custom</button>
+            <button className="btn" onClick={()=>addItem(null)}>+ Add custom</button>
           </div>
         </div>
 
         <Tree
-          items={menu.items || []}
+          items={menu.items}
           pages={pages}
-          onAddChild={(path) => {
-            const first = pages[0];
-            addItem(path, first ? pageItemFrom(first) : undefined);
-          }}
-          onUpdate={(path, patch) => updateItem(path, patch)}
+          onAddChild={(path)=>addItem(path)}
+          onUpdate={updateItem}
           onRemove={removeItem}
           onIndent={makeChild}
           onOutdent={makeSibling}
+          onMoveUp={(path)=>moveItem(path,-1)}
+          onMoveDown={(path)=>moveItem(path,+1)}
         />
       </div>
     </div>
   );
 }
 
-/** Utilities */
-function pageItemFrom(pg) {
-  return {
-    type: 'page',
-    label: pg.title,
-    pageId: pg._id,
-    pageSlug: pg.slug,
-    href: `/pages/${String(pg.slug || '').replace(/^\/+/, '')}`,
-    target: '_self',
-    children: [],
-  };
-}
-
-function getPath(items, path) {
-  let cur = items;
-  for (let i = 0; i < path.length; i++) {
-    cur = (i === path.length - 1) ? cur[path[i]] : (cur[path[i]].children || (cur[path[i]].children = []));
+/** ---- helpers for nested arrays ---- */
+function getPath(items, path){
+  // returns the node at path
+  let cur = { children: items };
+  for (let i=0;i<path.length;i++){
+    cur = (i === path.length-1) ? cur.children[path[i]] : cur.children[path[i]];
+    if (i < path.length-1) cur = cur; // keep walking; next loop grabs .children
   }
   return cur;
 }
-function getParent(items, path) {
+function getParent(items, path){
+  // returns the array containing the node at path
   let cur = items;
-  for (let i = 0; i < path.length - 1; i++) {
+  for (let i=0;i<path.length-1;i++){
     cur = cur[path[i]].children || (cur[path[i]].children = []);
   }
   return cur;
 }
-function removeAtPath(items, path) {
+function removeAtPath(items, path){
   const parent = getParent(items, path);
   parent.splice(path.at(-1), 1);
 }
 
-/** Recursive, simplified editor */
-function Tree({ items, pages, onAddChild, onUpdate, onRemove, onIndent, onOutdent, path = [] }) {
+/** Recursive tree editor */
+function Tree({
+  items, pages, onAddChild, onUpdate, onRemove, onIndent, onOutdent,
+  onMoveUp, onMoveDown, path=[]
+}){
   return (
     <ul className="space-y-2">
       {items.map((it, idx) => {
         const p = [...path, idx];
         const isPage = it.type === 'page';
 
-        // derive href preview for page items
-        const pageHrefPreview = isPage
-          ? `/pages/${String(it.pageSlug || it.href || '').replace(/^\/+/, '').replace(/^pages\//, '')}`
-          : (it.href || '');
-
         return (
           <li key={idx} className="border rounded-xl p-3">
-            {/* Type */}
-            <div className="grid sm:grid-cols-12 gap-2 items-start">
-              <div className="sm:col-span-2">
-                <label className="label">Type</label>
+            <div className="flex flex-wrap items-center gap-2">
+              {/* type */}
+              <select
+                className="input w-28"
+                value={it.type || 'custom'}
+                onChange={e=>{
+                  const type = e.target.value;
+                  if (type === 'page') {
+                    onUpdate(p, { type:'page', pageId: pages[0]?._id, pageSlug: pages[0] ? `pages/${pages[0].slug.replace(/^\/+/,'')}` : '', href: pages[0] ? `pages/${pages[0].slug.replace(/^\/+/,'')}` : '#', label: pages[0]?.title || '(untitled)' });
+                  } else {
+                    onUpdate(p, { type:'custom', pageId: undefined, pageSlug: undefined, href: it.href || '#', label: it.label || '(untitled)' });
+                  }
+                }}
+              >
+                <option value="page">Page</option>
+                <option value="custom">Custom</option>
+              </select>
+
+              {/* label */}
+              <input
+                className="input"
+                placeholder="Label"
+                value={it.label || ''}
+                onChange={e=>onUpdate(p, { label: e.target.value })}
+              />
+
+              {/* page picker OR custom href */}
+              {isPage ? (
                 <select
                   className="input"
-                  value={it.type || 'custom'}
-                  onChange={e => {
-                    const t = e.target.value;
-                    if (t === 'page') {
-                      // switch to page: seed from first page or clear
-                      const first = pages[0];
-                      if (first) onUpdate(p, pageItemFrom(first));
-                      else onUpdate(p, { type: 'page', label: '', pageId: '', pageSlug: '', href: '', target: '_self' });
-                    } else {
-                      onUpdate(p, { type: 'custom', label: it.label || 'New link', href: it.href || '/', pageId: undefined, pageSlug: undefined });
-                    }
+                  value={String(it.pageId || '')}
+                  onChange={e=>{
+                    const pg = pages.find(x => String(x._id) === e.target.value);
+                    if (!pg) return;
+                    const slugPart = `pages/${pg.slug.replace(/^\/+/,'')}`;
+                    onUpdate(p, { pageId: pg._id, pageSlug: slugPart, href: `/${slugPart}`, label: pg.title });
                   }}
                 >
-                  <option value="page">Page</option>
-                  <option value="custom">Custom</option>
+                  {pages.map(pg => (
+                    <option key={pg._id} value={pg._id}>{pg.title} /{pg.slug}</option>
+                  ))}
                 </select>
-              </div>
-
-              {/* When PAGE: show only the Page dropdown + preview. No free-text label box. */}
-              {isPage ? (
-                <>
-                  <div className="sm:col-span-5">
-                    <label className="label">Page</label>
-                    <select
-                      className="input"
-                      value={String(it.pageId || '')}
-                      onChange={e => {
-                        const pg = pages.find(x => String(x._id) === String(e.target.value));
-                        if (pg) onUpdate(p, pageItemFrom(pg));
-                      }}
-                    >
-                      {pages.map(pg => (
-                        <option key={pg._id} value={pg._id}>
-                          {pg.title} /{pg.slug}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="sm:col-span-3">
-                    <label className="label">Opens</label>
-                    <select
-                      className="input"
-                      value={it.target || '_self'}
-                      onChange={e => onUpdate(p, { target: e.target.value })}
-                    >
-                      <option value="_self">Same tab</option>
-                      <option value="_blank">New tab</option>
-                    </select>
-                  </div>
-                  <div className="sm:col-span-12 text-xs text-gray-500">
-                    Link: <code>{pageHrefPreview}</code> • Label: <code>{it.label || '(auto from page)'}</code>
-                  </div>
-                </>
               ) : (
-                // When CUSTOM: show label + href + target
-                <>
-                  <div className="sm:col-span-4">
-                    <label className="label">Label</label>
-                    <input
-                      className="input"
-                      value={it.label || ''}
-                      onChange={e => onUpdate(p, { label: e.target.value })}
-                    />
-                  </div>
-                  <div className="sm:col-span-4">
-                    <label className="label">Href</label>
-                    <input
-                      className="input"
-                      placeholder="/path-or-https://"
-                      value={it.href || ''}
-                      onChange={e => onUpdate(p, { href: e.target.value })}
-                    />
-                  </div>
-                  <div className="sm:col-span-2">
-                    <label className="label">Opens</label>
-                    <select
-                      className="input"
-                      value={it.target || '_self'}
-                      onChange={e => onUpdate(p, { target: e.target.value })}
-                    >
-                      <option value="_self">Same tab</option>
-                      <option value="_blank">New tab</option>
-                    </select>
-                  </div>
-                </>
+                <input
+                  className="input"
+                  placeholder="https:// or /slug"
+                  value={it.href || ''}
+                  onChange={e=>onUpdate(p, { href: e.target.value })}
+                />
               )}
+
+              {/* target */}
+              <select
+                className="input w-28"
+                value={it.target || '_self'}
+                onChange={e=>onUpdate(p, { target: e.target.value })}
+              >
+                <option value="_self">Same tab</option>
+                <option value="_blank">New tab</option>
+              </select>
+
+              {/* actions */}
+              <div className="ml-auto flex gap-2">
+                <button className="btn" onClick={()=>onMoveUp(p)}>↑</button>
+                <button className="btn" onClick={()=>onMoveDown(p)}>↓</button>
+                <button className="btn" onClick={()=>onIndent(p)} title="Make child of previous">Indent</button>
+                <button className="btn" onClick={()=>onOutdent(p)} title="Outdent to parent">Outdent</button>
+                <button className="btn" onClick={()=>onAddChild(p)}>+ Child</button>
+                <button className="btn btn-secondary" onClick={()=>onRemove(p)}>Delete</button>
+              </div>
             </div>
 
-            {/* Controls */}
-            <div className="mt-3 flex gap-2">
-              <button className="btn" onClick={() => onIndent(p)}>Indent</button>
-              <button className="btn" onClick={() => onOutdent(p)}>Outdent</button>
-              <button className="btn" onClick={() => onAddChild(p)}>+ Child</button>
-              <button className="btn btn-secondary" onClick={() => onRemove(p)}>Delete</button>
-            </div>
-
-            {/* Children */}
             {it.children?.length ? (
               <div className="mt-3 ml-4 border-l pl-3">
                 <Tree
@@ -319,6 +294,8 @@ function Tree({ items, pages, onAddChild, onUpdate, onRemove, onIndent, onOutden
                   onRemove={onRemove}
                   onIndent={onIndent}
                   onOutdent={onOutdent}
+                  onMoveUp={onMoveUp}
+                  onMoveDown={onMoveDown}
                   path={p}
                 />
               </div>
