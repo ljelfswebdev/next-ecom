@@ -1,6 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { useSession, signOut } from 'next-auth/react';
+import MainMenu from '@/components/MainMenu';
 
 export default function Header() {
   const { data: session, status } = useSession(); // include both data and status
@@ -13,6 +14,8 @@ export default function Header() {
       </Link>
 
       <nav className="flex items-center gap-4">
+        <MainMenu slug="main"/>
+
         <Link href="/shop">Shop</Link>
 
         {isAdmin && (

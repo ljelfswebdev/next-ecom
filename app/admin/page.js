@@ -16,6 +16,7 @@ export default async function AdminPage(){
         <Link href="/admin/orders" className="card hover:bg-gray-50">Orders</Link>
         <Link href="/admin/reviews" className="card hover:bg-gray-50">Reviews</Link>
         <Link href="/admin/pages" className="card hover:bg-gray-50">Pages</Link>
+        <Link href="/admin/menus" className="card hover:bg-gray-50">Menus</Link>
         
       </div>
     </div>
