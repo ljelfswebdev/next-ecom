@@ -9,6 +9,8 @@
     "seed": "node scripts/seedAdmin.js"
   },
   "dependencies": {
+    "@ckeditor/ckeditor5-build-classic": "^41.4.2",
+    "@ckeditor/ckeditor5-react": "^11.0.0",
     "bcryptjs": "^2.4.3",
     "cloudinary": "1.41.3",
     "cookie": "0.6.0",

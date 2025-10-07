@@ -15,3 +15,23 @@ body { @apply bg-gray-50 text-gray-900; }
 @import 'swiper/css';
 @import 'swiper/css/navigation';
 @import 'swiper/css/pagination';
+
+.rich-input {
+  /* Tailwind-ish look, but not the .input class */
+  border: 1px solid rgb(229 231 235); /* gray-200 */
+  border-radius: 0.75rem;             /* rounded-xl */
+  padding: 0.75rem;                   /* p-3 */
+  background: white;
+  outline: none;
+}
+
+.rich-input:focus {
+  /* simple focus ring */
+  box-shadow: 0 0 0 3px rgba(59,130,246,.2);
+  border-color: rgb(59 130 246); /* blue-500 */
+}
+
+.rich-input * {
+  /* ensure LTR typing inside */
+  direction: ltr;
+}
