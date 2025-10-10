@@ -2,6 +2,7 @@
 import Link from 'next/link';
 import { useSession, signOut } from 'next-auth/react';
 import MainMenu from '@/components/MainMenu';
+import HeaderSearch from '@/components/HeaderSearch';
 
 export default function Header() {
   const { data: session, status } = useSession(); // include both data and status
@@ -12,6 +13,8 @@ export default function Header() {
       <Link href="/" className="font-bold text-lg">
         MyStore
       </Link>
+
+      <HeaderSearch/>
 
       <nav className="flex items-center gap-4">
         <MainMenu slug="main"/>
