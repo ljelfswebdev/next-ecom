@@ -259,7 +259,7 @@ export default function CartPage(){
         </div>
 
         {/* Currency / Zone */}
-        <div className="grid grid-cols-2 gap-2">
+        {/* <div className="grid grid-cols-2 gap-2">
           <div>
             <label className="label">Currency</label>
             <select className="input" value={currency} onChange={e=>setCurrency(e.target.value)}>
@@ -272,7 +272,7 @@ export default function CartPage(){
               <option>UK</option><option>EU</option><option>USA</option>
             </select>
           </div>
-        </div>
+        </div> */}
 
         {/* Mode selector */}
         <div className="flex gap-2">

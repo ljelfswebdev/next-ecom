@@ -6,13 +6,11 @@ export async function GET() {
   await dbConnect();
   const s = await Settings.findOne({}).lean();
 
-  // Defaults if nothing saved yet
   const vatPercent = typeof s?.vatPercent === 'number' ? s.vatPercent : 20;
+
+  // Keep fx/shipping logic even if you’re UK-only (it won’t hurt)
   const fx = s?.fx || { GBP: 1, EUR: 1.15, USD: 1.28 };
 
-  // We accept either:
-  //  A) per-currency shipping: shipping.{zone}.{currency}
-  //  B) GBP-only shipping and we derive others using fx
   const baseShipping = s?.shipping || {};
   const zones = ['UK','EU','USA'];
   const currs = ['GBP','EUR','USD'];
@@ -26,7 +24,6 @@ export async function GET() {
       if (typeof explicit === 'number') {
         shipping[z][c] = +explicit.toFixed(2);
       } else {
-        // derive from GBP using fx when not explicitly set
         const rate = Number(fx?.[c] ?? 1);
         shipping[z][c] = +(gbp * rate).toFixed(2);
       }
@@ -35,5 +32,20 @@ export async function GET() {
 
   const supportedCurrencies = s?.supportedCurrencies || ['GBP','EUR','USD'];
 
-  return Response.json({ vatPercent, fx, shipping, supportedCurrencies });
+  // 🔥 expose store info too
+  const storeName = s?.storeName || '';
+  const supportEmail = s?.supportEmail || '';
+  const storeAddress = s?.storeAddress || '';
+  const contactNumber = s?.contactNumber || '';
+
+  return Response.json({
+    vatPercent,
+    fx,
+    shipping,
+    supportedCurrencies,
+    storeName,
+    supportEmail,
+    storeAddress,
+    contactNumber,
+  });
 }

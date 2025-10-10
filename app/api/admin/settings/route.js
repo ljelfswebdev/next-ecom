@@ -1,4 +1,4 @@
-
+// app/api/admin/settings/route.js
 import { dbConnect } from '@/lib/db';
 import Settings from '@/models/Settings';
 import { getServerSession } from 'next-auth';
@@ -13,7 +13,9 @@ export async function GET() {
 
 export async function PATCH(req) {
   const session = await getServerSession(authOptions);
-  if (!session || (session.user.role !== 'admin' && session.user.role !== 'staff')) return new Response('Forbidden', { status: 403 });
+  if (!session || (session.user.role !== 'admin' && session.user.role !== 'staff')) {
+    return new Response('Forbidden', { status: 403 });
+  }
   await dbConnect();
   const body = await req.json();
   const s = await Settings.findOneAndUpdate({}, body, { upsert: true, new: true });
