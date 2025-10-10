@@ -16,6 +16,7 @@ export default function CartPage(){
   const [fx, setFx] = useState({ GBP:1, EUR:1.15, USD:1.28 });
   const [shippingTable, setShippingTable] = useState({});
   const [status, setStatus] = useState('');
+  const [freeOverGBP, setFreeOverGBP] = useState({}); // { UK: 50, ... }
 
   // checkout UX mode
   const [mode, setMode] = useState('guest');
@@ -46,16 +47,15 @@ export default function CartPage(){
         if (typeof s?.vatPercent === 'number') setVatPercent(s.vatPercent);
         if (s?.fx) setFx(s.fx);
         if (s?.shipping) setShippingTable(s.shipping);
+        if (s?.freeOverGBP) setFreeOverGBP(s.freeOverGBP);
       } catch {}
     })();
 
     // 3) enrich each cart line with maxStock from server
     (async () => {
       try {
-        // fetch each product (dedup by productId)
         const ids = [...new Set(local.map(l => l.productId).filter(Boolean))];
         const byId = new Map();
-
         await Promise.all(ids.map(async (pid) => {
           const r = await fetch(`/api/products/by-id/${pid}`, { cache: 'no-store' });
           if (r.ok) byId.set(pid, await r.json());
@@ -68,7 +68,6 @@ export default function CartPage(){
             const v = product.variants.find(x => String(x._id) === String(line.variantId));
             maxStock = Math.max(0, Number(v?.stock ?? 0));
           }
-          // clamp any existing qty
           const qty = Math.max(1, Math.min(Number(line.qty || 1), Number.isFinite(maxStock) ? maxStock : Infinity));
           return { ...line, maxStock, qty };
         });
@@ -76,7 +75,6 @@ export default function CartPage(){
         setItems(withCaps);
         localStorage.setItem('cart', JSON.stringify(withCaps));
       } catch (e) {
-        // if something fails, we just keep the local cart as-is
         console.warn('Failed to enrich cart with stock caps', e);
       }
     })();
@@ -146,13 +144,24 @@ export default function CartPage(){
     [subtotalExGBP, vatPercent]
   );
 
+  // ----- Free delivery threshold (based on subtotal + VAT) -----
+  const thresholdGBP = Number(freeOverGBP?.[zone] ?? 0);
+  const thresholdBasisGBP = subtotalExGBP + vatAmountGBP; // inc VAT
+  const qualifiesForFree = thresholdGBP > 0 && thresholdBasisGBP >= thresholdGBP;
+  const remainingForFreeGBP = thresholdGBP > 0 && !qualifiesForFree
+    ? +(thresholdGBP - thresholdBasisGBP).toFixed(2)
+    : 0;
+  const remainingForFreeDisp = toDisplay(remainingForFreeGBP);
+
   // shipping (GBP base)
   const shippingGBPBase = useMemo(() => {
-    const val = shippingTable?.[zone]?.GBP;
-    return typeof val === 'number' ? val : 0;
-  }, [shippingTable, zone]);
+    const flat = Number(shippingTable?.[zone]?.GBP ?? 0);
+    if (qualifiesForFree) return 0; // FREE!
+    return flat;
+  }, [shippingTable, zone, qualifiesForFree]);
 
   const shippingDisp = useMemo(() => {
+    if (shippingGBPBase === 0) return 0;
     const explicit = shippingTable?.[zone]?.[currency];
     if (typeof explicit === 'number') return +explicit.toFixed(2);
     return toDisplay(shippingGBPBase);
@@ -299,8 +308,23 @@ export default function CartPage(){
           </div>
           <div className="flex justify-between">
             <span>Delivery</span>
-            <span className="font-medium">{fmt(shippingDisp)}</span>
+            <span className="font-medium">
+              {shippingGBPBase === 0 ? 'Free' : fmt(shippingDisp)}
+            </span>
           </div>
+
+          {/* Free delivery nudge */}
+          {thresholdGBP > 0 && !qualifiesForFree && remainingForFreeGBP > 0 && (
+            <div className="text-xs text-gray-600 mt-1">
+              Spend {fmt(remainingForFreeDisp)} more to get <span className="font-medium">free delivery</span>.
+            </div>
+          )}
+          {thresholdGBP > 0 && qualifiesForFree && (
+            <div className="text-xs text-green-700 mt-1">
+              You’ve unlocked free delivery 🎉
+            </div>
+          )}
+
           <div className="flex justify-between text-base pt-1 border-t mt-1">
             <span className="font-semibold">Total (inc VAT)</span>
             <span className="font-semibold">{fmt(totalIncDisp)}</span>

@@ -23,6 +23,12 @@ export default function AdminSettingsPage(){
 
   if(!s) return <div>Loading...</div>;
 
+    const setShip = (zone, curr, val) =>
+    setS(prev => ({ ...prev, shipping: { ...(prev.shipping||{}), [zone]: { ...(prev.shipping?.[zone]||{}), [curr]: val }}}));
+
+  const setFree = (zone, val) =>
+    setS(prev => ({ ...prev, freeOverGBP: { ...(prev.freeOverGBP||{}), [zone]: val }}));
+
   return (
     <div className="card space-y-6">
       <h1 className="text-xl font-semibold">Store Settings (UK only)</h1>
@@ -56,22 +62,23 @@ export default function AdminSettingsPage(){
                  onChange={e=>setS({...s, vatPercent: parseFloat(e.target.value || '0')})} />
         </div>
 
+        {/* UK shipping flat rate (GBP) */}
         <div>
-          <h3 className="label">Shipping (UK, GBP)</h3>
-          <div className="flex items-center gap-3 mt-1">
-            <div className="w-16">GBP</div>
-            <input
-              className="input" type="number" step="0.01"
-              value={s.shipping?.UK?.GBP ?? 0}
-              onChange={e=>setS({
-                ...s,
-                shipping: {
-                  ...(s.shipping || {}),
-                  UK: { ...(s.shipping?.UK || {}), GBP: parseFloat(e.target.value || '0') }
-                }
-              })}
-            />
-          </div>
+          <label className="label">UK Delivery flat rate (GBP)</label>
+          <input className="input" type="number" step="0.01"
+            value={s.shipping?.UK?.GBP ?? 0}
+            onChange={e=>setShip('UK','GBP', parseFloat(e.target.value||0))} />
+        </div>
+
+        {/* NEW: UK free shipping threshold */}
+        <div>
+          <label className="label">UK Free shipping threshold (GBP)</label>
+          <input className="input" type="number" step="0.01"
+            value={s.freeOverGBP?.UK ?? 0}
+            onChange={e=>setFree('UK', parseFloat(e.target.value||0))} />
+          <p className="text-xs text-gray-500 mt-1">
+            Set to 0 to disable free shipping.
+          </p>
         </div>
       </div>
 

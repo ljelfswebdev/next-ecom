@@ -8,7 +8,7 @@ export async function GET() {
 
   const vatPercent = typeof s?.vatPercent === 'number' ? s.vatPercent : 20;
 
-  // Keep fx/shipping logic even if you’re UK-only (it won’t hurt)
+  // Keep fx/shipping logic even if UK-only
   const fx = s?.fx || { GBP: 1, EUR: 1.15, USD: 1.28 };
 
   const baseShipping = s?.shipping || {};
@@ -30,9 +30,16 @@ export async function GET() {
     }
   }
 
+  // ✅ compute AND RETURN this
+  const freeOverGBP = {
+    UK:  typeof s?.freeOverGBP?.UK  === 'number' ? s.freeOverGBP.UK  : 0,
+    EU:  typeof s?.freeOverGBP?.EU  === 'number' ? s.freeOverGBP.EU  : 0,
+    USA: typeof s?.freeOverGBP?.USA === 'number' ? s.freeOverGBP.USA : 0,
+  };
+
   const supportedCurrencies = s?.supportedCurrencies || ['GBP','EUR','USD'];
 
-  // 🔥 expose store info too
+  // store info
   const storeName = s?.storeName || '';
   const supportEmail = s?.supportEmail || '';
   const storeAddress = s?.storeAddress || '';
@@ -43,6 +50,7 @@ export async function GET() {
     fx,
     shipping,
     supportedCurrencies,
+    freeOverGBP,        // ← missing before
     storeName,
     supportEmail,
     storeAddress,

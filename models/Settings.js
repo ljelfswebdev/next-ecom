@@ -22,6 +22,13 @@ const SettingsSchema = new mongoose.Schema({
     USA: { GBP: Number, EUR: Number, USD: Number }
   },
 
+    // NEW: free shipping thresholds (per zone, GBP baseline)
+  freeOverGBP: {
+    UK:  { type: Number, default: 0 },   // set 50 to enable
+    EU:  { type: Number, default: 0 },
+    USA: { type: Number, default: 0 },
+  },
+
   // 🔥 NEW store info fields
   storeName: { type: String, default: '' },
   supportEmail: { type: String, default: '' },
