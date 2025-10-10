@@ -1,3 +1,4 @@
+// app/admin/orders/[id]/page.js
 'use client';
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
@@ -7,8 +8,9 @@ const StatusOptions = ['created','paid','shipped','cancelled'];
 export default function AdminOrderDetailPage(){
   const { id } = useParams();
   const router = useRouter();
-  const [data, setData] = useState(null);  // { order, customer }
+  const [data, setData] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [localStatus, setLocalStatus] = useState('created');
 
   useEffect(() => {
     (async () => {
@@ -16,6 +18,7 @@ export default function AdminOrderDetailPage(){
       if (r.ok) {
         const j = await r.json();
         setData(j);
+        setLocalStatus(j?.order?.status || 'created');
       } else {
         alert('Order not found');
         router.push('/admin/orders');
@@ -40,17 +43,18 @@ export default function AdminOrderDetailPage(){
     </div>
   );
 
-  const updateStatus = async (next) => {
+  const saveStatus = async ()=>{
     setSaving(true);
     const r = await fetch(`/api/admin/orders/${order._id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: next }),
+      body: JSON.stringify({ status: localStatus }),
     });
     setSaving(false);
     if (r.ok) {
       const j = await r.json();
       setData((d) => ({ ...d, order: j }));
+      alert('Status saved');
     } else {
       alert('Failed to update');
     }
@@ -61,7 +65,7 @@ export default function AdminOrderDetailPage(){
       {/* Header */}
       <div className="card flex items-center justify-between">
         <div>
-          <div className="font-semibold">Order #{order._id}</div>
+          <div className="font-semibold">Order #{order.orderNumber || order._id}</div>
           <div className="text-sm text-gray-500">
             {new Date(order.createdAt).toLocaleString()}
           </div>
@@ -70,14 +74,17 @@ export default function AdminOrderDetailPage(){
           <span className="text-sm">Status:</span>
           <select
             className="input"
-            value={order.status}
-            onChange={(e) => updateStatus(e.target.value)}
+            value={localStatus}
+            onChange={(e) => setLocalStatus(e.target.value)}
             disabled={saving}
           >
             {StatusOptions.map((s) => (
               <option key={s} value={s}>{s}</option>
             ))}
           </select>
+          <button className="btn btn-primary" onClick={saveStatus} disabled={saving}>
+            {saving ? 'Saving…' : 'Save'}
+          </button>
         </div>
       </div>
 
@@ -127,7 +134,7 @@ export default function AdminOrderDetailPage(){
               const unitEx = it.unitPriceExVatGBP || 0;
               const qty = it.qty || 1;
               const lineEx = unitEx * qty;
-              const lineVat = it.lineVat ?? Math.round((it.vatPercent ?? 0) * lineEx) / 100; // fallback
+              const lineVat = it.lineVat ?? Math.round((it.vatPercent ?? 0) * lineEx) / 100;
               const lineInc = it.lineTotalIncVatGBP ?? lineEx + lineVat;
               return (
                 <tr key={i} className="border-t">

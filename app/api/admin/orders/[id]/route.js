@@ -1,44 +1,62 @@
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+// app/api/admin/orders/[id]/route.js
 import { dbConnect } from '@/lib/db';
 import Order from '@/models/Order';
-import User from '@/models/User';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
+
+import { sendMail, getStoreSettings } from '@/lib/mail';
+import {
+  renderOrderSummaryHTML,
+  subjectCustomerShipped,
+} from '@/lib/emailTemplates';
 
 export async function GET(_req, { params }) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user || session.user.role !== 'admin') {
-    return new Response('Forbidden', { status: 403 });
-  }
-
   await dbConnect();
   const order = await Order.findById(params.id).lean();
   if (!order) return new Response('Not found', { status: 404 });
 
   let customer = null;
   if (order.userId) {
-    customer = await User.findById(order.userId)
-      .select('name email addresses')
-      .lean();
+    const User = (await import('@/models/User')).default;
+    customer = await User.findById(order.userId).lean();
   }
-
   return Response.json({ order, customer });
 }
 
-// Optional: allow status updates from admin
 export async function PATCH(req, { params }) {
   const session = await getServerSession(authOptions);
-  if (!session?.user || session.user.role !== 'admin') {
+  if (!session || !['admin','staff'].includes(session.user?.role)) {
     return new Response('Forbidden', { status: 403 });
   }
 
-  const body = await req.json(); // { status?: 'created'|'paid'|'shipped'|'cancelled', note?: string }
   await dbConnect();
-  const order = await Order.findByIdAndUpdate(
-    params.id,
-    { $set: body },
-    { new: true }
-  ).lean();
+  const b = await req.json();
+  const prev = await Order.findById(params.id);
+  if (!prev) return new Response('Not found', { status:404 });
 
-  if (!order) return new Response('Not found', { status: 404 });
-  return Response.json(order);
+  // Only allow updating status for now (extend as needed)
+  if (typeof b.status === 'string' && b.status !== prev.status) {
+    prev.status = b.status;
+    await prev.save();
+
+    // Fire email on "shipped"
+    if (b.status === 'shipped' && prev.email) {
+      queueMicrotask(async () => {
+        try {
+          const store = await getStoreSettings();
+          const html = renderOrderSummaryHTML(prev.toObject ? prev.toObject() : prev, store);
+          await sendMail({
+            to: prev.email,
+            subject: subjectCustomerShipped(prev, store),
+            html,
+          });
+        } catch {}
+      });
+    }
+
+    return Response.json(prev);
+  }
+
+  // If nothing changed / unsupported fields
+  return Response.json(prev);
 }
