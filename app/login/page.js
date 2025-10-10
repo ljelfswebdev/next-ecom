@@ -15,7 +15,10 @@ export default function LoginPage() {
         <div><label className="label">Password</label><input type="password" className="input" value={password} onChange={e=>setPassword(e.target.value)} /></div>
         <button className="btn btn-primary w-full">Login</button>
       </form>
-      <p className="text-sm mt-3">No account? <Link className="underline" href="/register">Register</Link></p>
+            <div className="flex items-center justify-between text-sm mt-3">
+       <Link className="underline" href="/register">Create account</Link>
+      <Link className="underline" href="/reset-password">Forgot password?</Link>
+      </div>
     </div>
   );
 }

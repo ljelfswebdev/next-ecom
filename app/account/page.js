@@ -165,6 +165,11 @@ export default function AccountPage(){
         </div>
       </div>
 
+      <div className="card">
+        <h2 className="font-semibold mb-3">Change password</h2>
+        <ChangePassword />
+      </div>
+
       <div className="flex justify-end">
         <button className="btn btn-primary" onClick={save} disabled={saving}>
           {saving ? 'Saving…' : 'Save changes'}
@@ -213,6 +218,50 @@ function Field({ label, value, onChange, autoComplete }){
         onChange={e=>onChange(e.target.value)}
         autoComplete={autoComplete}
       />
+    </div>
+  );
+}
+
+function ChangePassword(){
+  const [oldPassword, setOld] = useState('');
+  const [newPassword, setNew] = useState('');
+  const [repeat, setRep] = useState('');
+  const [status, setStatus] = useState('');
+
+  const submit = async ()=>{
+    if (!oldPassword || !newPassword || !repeat) { setStatus('Fill all fields'); return; }
+    if (newPassword !== repeat) { setStatus('New passwords do not match'); return; }
+    setStatus('Saving…');
+    const r = await fetch('/api/account/change-password', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ oldPassword, newPassword }),
+    });
+    if (r.ok) {
+      setStatus('Password updated');
+      setOld(''); setNew(''); setRep('');
+    } else {
+      setStatus(await r.text().catch(()=> 'Failed'));
+    }
+  };
+
+  return (
+    <div className="grid md:grid-cols-3 gap-3">
+      <div>
+        <label className="label">Current password</label>
+        <input type="password" className="input" value={oldPassword} onChange={e=>setOld(e.target.value)} />
+      </div>
+      <div>
+        <label className="label">New password</label>
+        <input type="password" className="input" value={newPassword} onChange={e=>setNew(e.target.value)} />
+      </div>
+      <div>
+        <label className="label">Repeat new password</label>
+        <input type="password" className="input" value={repeat} onChange={e=>setRep(e.target.value)} />
+      </div>
+      <div className="md:col-span-3 flex justify-end">
+        <button className="btn btn-primary" onClick={submit}>Save password</button>
+      </div>
+      {status && <div className="md:col-span-3 text-sm">{status}</div>}
     </div>
   );
 }
