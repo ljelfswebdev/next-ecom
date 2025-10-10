@@ -9,37 +9,43 @@ export default function CartPage(){
   const { data: session } = useSession();
 
   // cart + settings
-  const [items, setItems] = useState([]); // each will become { ..., maxStock?: number }
+  const [items, setItems] = useState([]); // each will become { ..., maxStock?: number, categoryIds?: string[] }
   const [currency, setCurrency] = useState('GBP');
   const [zone, setZone] = useState('UK');
   const [vatPercent, setVatPercent] = useState(20);
   const [fx, setFx] = useState({ GBP:1, EUR:1.15, USD:1.28 });
   const [shippingTable, setShippingTable] = useState({});
-  const [status, setStatus] = useState('');
   const [freeOverGBP, setFreeOverGBP] = useState({}); // { UK: 50, ... }
 
-  // checkout UX mode
-  const [mode, setMode] = useState('guest');
+  // coupons
+  const [hasCoupons, setHasCoupons] = useState(false);
+  const [couponCode, setCouponCode] = useState('');
+  const [appliedCoupon, setAppliedCoupon] = useState(null);     // whole coupon object from settings
+  const [couponError, setCouponError] = useState('');
 
-  // guest / account form state
+  // checkout UX
+  const [mode, setMode] = useState('guest');
+  const [status, setStatus] = useState('');
+
+  // guest/account forms
   const [email, setEmail] = useState('');
   const [customerName, setCustomerName] = useState('');
   const [billing, setBilling] = useState({ ...blank });
   const [shipping, setShipping] = useState({ ...blank });
   const [sameAsBilling, setSameAsBilling] = useState(true);
 
-  // inline login form
+  // inline login
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [loggingIn, setLoggingIn] = useState(false);
 
   // ---- load cart + SETTINGS + enrich with stock caps ----
   useEffect(() => {
-    // 1) base cart from localStorage
+    // 1) local cart
     const local = JSON.parse(localStorage.getItem('cart') || '[]');
     setItems(local);
 
-    // 2) settings
+    // 2) load settings (VAT, shipping, freeOver, coupons)
     (async () => {
       try {
         const r = await fetch('/api/settings', { cache: 'no-store' });
@@ -48,10 +54,11 @@ export default function CartPage(){
         if (s?.fx) setFx(s.fx);
         if (s?.shipping) setShippingTable(s.shipping);
         if (s?.freeOverGBP) setFreeOverGBP(s.freeOverGBP);
+        setHasCoupons(!!s?.hasCoupons);
       } catch {}
     })();
 
-    // 3) enrich each cart line with maxStock from server
+    // 3) enrich lines with maxStock + categoryIds
     (async () => {
       try {
         const ids = [...new Set(local.map(l => l.productId).filter(Boolean))];
@@ -64,12 +71,16 @@ export default function CartPage(){
         const withCaps = local.map(line => {
           const product = byId.get(line.productId);
           let maxStock = undefined;
-          if (product && Array.isArray(product.variants) && line.variantId) {
-            const v = product.variants.find(x => String(x._id) === String(line.variantId));
-            maxStock = Math.max(0, Number(v?.stock ?? 0));
+          let categoryIds = [];
+          if (product) {
+            if (Array.isArray(product.categoryIds)) categoryIds = product.categoryIds.map(String);
+            if (Array.isArray(product.variants) && line.variantId) {
+              const v = product.variants.find(x => String(x._id) === String(line.variantId));
+              maxStock = Math.max(0, Number(v?.stock ?? 0));
+            }
           }
           const qty = Math.max(1, Math.min(Number(line.qty || 1), Number.isFinite(maxStock) ? maxStock : Infinity));
-          return { ...line, maxStock, qty };
+          return { ...line, maxStock, qty, categoryIds };
         });
 
         setItems(withCaps);
@@ -79,7 +90,7 @@ export default function CartPage(){
       }
     })();
 
-    // account prefill
+    // 4) account prefill
     (async ()=>{
       try {
         if (!session?.user) { setMode('guest'); return; }
@@ -120,33 +131,64 @@ export default function CartPage(){
   // FX helpers
   const fxRate = useMemo(() => fx?.[currency] ?? 1, [fx, currency]);
   const toDisplay = (gbp) => +(gbp * fxRate).toFixed(2);
+  const fmt = (n) => n.toLocaleString(undefined, { style:'currency', currency });
 
   // pricing helpers (GBP baseline)
   const itemVat = (it) => (typeof it.vatPercent === 'number' ? it.vatPercent : vatPercent);
   const unitExGBP = (it) => (it.unitPriceExVatGBP || 0);
   const unitIncGBP = (it) => +((unitExGBP(it) * (1 + itemVat(it) / 100))).toFixed(2);
 
-  // in selected currency
-  const unitExDisp = (it) => toDisplay(unitExGBP(it));
-  const unitIncDisp = (it) => toDisplay(unitIncGBP(it));
   const lineExGBP  = (it) => +((unitExGBP(it) * (it.qty || 1))).toFixed(2);
   const lineIncGBP = (it) => +((unitIncGBP(it) * (it.qty || 1))).toFixed(2);
-  const lineExDisp  = (it) => toDisplay(lineExGBP(it));
-  const lineIncDisp = (it) => toDisplay(lineIncGBP(it));
 
-  // totals (GBP baseline)
+  // ---- subtotal (ex VAT) BEFORE discount
   const subtotalExGBP = useMemo(
     () => items.reduce((a,b)=> a + (unitExGBP(b) * (b.qty || 1)), 0),
     [items]
   );
-  const vatAmountGBP = useMemo(
-    () => +(subtotalExGBP * (vatPercent/100)).toFixed(2),
-    [subtotalExGBP, vatPercent]
+
+  // ---- coupon: eligibility & discount (ex VAT)
+  function eligibleSubtotalExGBP(coupon) {
+    if (!coupon) return 0;
+    const scope = coupon.appliesTo?.scope || 'all';
+    const idsSet = new Set((coupon.appliesTo?.ids || []).map(String));
+    return items.reduce((sum, it) => {
+      const line = (it.unitPriceExVatGBP || 0) * (it.qty || 1);
+      if (scope === 'all') return sum + line;
+      if (scope === 'products') {
+        if (idsSet.has(String(it.productId))) return sum + line;
+        return sum;
+      }
+      if (scope === 'categories') {
+        const has = (it.categoryIds || []).some(id => idsSet.has(String(id)));
+        if (has) return sum + line;
+        return sum;
+      }
+      return sum;
+    }, 0);
+  }
+  function computeDiscountExGBP(coupon) {
+    const base = eligibleSubtotalExGBP(coupon);
+    if (base <= 0) return 0;
+    if (coupon.type === 'fixed')   return Math.min(base, Math.max(0, Number(coupon.amount || 0)));
+    if (coupon.type === 'percent') return Math.min(base, +(base * (Number(coupon.amount || 0) / 100)).toFixed(2));
+    return 0;
+  }
+  const discountExGBP = useMemo(
+    () => computeDiscountExGBP(appliedCoupon),
+    [appliedCoupon, items]
   );
 
-  // ----- Free delivery threshold (based on subtotal + VAT) -----
+  // ---- recompute VAT/threshold using discounted subtotal
+  const subtotalAfterDiscountExGBP = Math.max(0, +(subtotalExGBP - discountExGBP).toFixed(2));
+  const vatAmountGBP = useMemo(
+    () => +(subtotalAfterDiscountExGBP * (vatPercent/100)).toFixed(2),
+    [subtotalAfterDiscountExGBP, vatPercent]
+  );
+
+  // Free delivery threshold uses (subtotal after discount + VAT)
   const thresholdGBP = Number(freeOverGBP?.[zone] ?? 0);
-  const thresholdBasisGBP = subtotalExGBP + vatAmountGBP; // inc VAT
+  const thresholdBasisGBP = subtotalAfterDiscountExGBP + vatAmountGBP; // inc VAT
   const qualifiesForFree = thresholdGBP > 0 && thresholdBasisGBP >= thresholdGBP;
   const remainingForFreeGBP = thresholdGBP > 0 && !qualifiesForFree
     ? +(thresholdGBP - thresholdBasisGBP).toFixed(2)
@@ -167,17 +209,11 @@ export default function CartPage(){
     return toDisplay(shippingGBPBase);
   }, [shippingTable, zone, currency, shippingGBPBase, fxRate]);
 
-  const totalIncGBP = useMemo(
-    () => +(subtotalExGBP + vatAmountGBP + shippingGBPBase).toFixed(2),
-    [subtotalExGBP, vatAmountGBP, shippingGBPBase]
-  );
-
-  // display currency totals
-  const subtotalExDisp = toDisplay(subtotalExGBP);
+  // grand totals
+  const subtotalExDisp = toDisplay(subtotalAfterDiscountExGBP);
+  const discountDisp   = toDisplay(discountExGBP);
   const vatAmountDisp  = toDisplay(vatAmountGBP);
   const totalIncDisp   = +(subtotalExDisp + vatAmountDisp + shippingDisp).toFixed(2);
-
-  const fmt = (n) => n.toLocaleString(undefined, { style:'currency', currency });
 
   // inline login
   const doLogin = async () => {
@@ -188,6 +224,22 @@ export default function CartPage(){
     if (res?.ok) setLoginPassword('');
     else setStatus('Login failed. Check email/password.');
   };
+
+  // apply coupon
+ const tryApplyCoupon = async () => {
+   setCouponError('');
+   const code = couponCode.trim().toUpperCase();
+   if (!code) { setCouponError('Enter a code'); return; }
+   try {
+     const r = await fetch(`/api/coupons/validate?code=${encodeURIComponent(code)}`, { cache:'no-store' });
+     if (!r.ok) throw new Error(await r.text());
+     const c = await r.json();
+     setAppliedCoupon(c);
+   } catch (e) {
+     setAppliedCoupon(null);
+     setCouponError((e?.message || 'Invalid or expired code').slice(0,200));
+   }
+ };
 
   // checkout
   const checkout = async ()=>{
@@ -209,11 +261,13 @@ export default function CartPage(){
         billingAddress: bill,
         shippingAddress: ship,
         saveToAccount: !!session?.user,
+        coupon: appliedCoupon ? { code: appliedCoupon.code } : null,
       })
     });
     if(r.ok){
       setStatus('Success! Confirmation email sent.');
       localStorage.removeItem('cart'); setItems([]);
+      setAppliedCoupon(null); setCouponCode('');
     }else{
       const text = await r.text().catch(()=> '');
       setStatus(text || 'Error creating order');
@@ -279,10 +333,10 @@ export default function CartPage(){
 
                       {/* per-item prices in selected currency */}
                       <div className="text-xs text-gray-500 mt-1">
-                        Unit: {fmt(unitExDisp(it))} ex VAT • {fmt(unitIncDisp(it))} inc VAT
+                        Unit: {fmt(toDisplay(unitExGBP(it)))} ex VAT • {fmt(toDisplay(unitIncGBP(it)))} inc VAT
                       </div>
                       <div className="text-xs text-gray-500">
-                        Line: {fmt(lineExDisp(it))} ex VAT • {fmt(lineIncDisp(it))} inc VAT
+                        Line: {fmt(toDisplay(lineExGBP(it)))} ex VAT • {fmt(toDisplay(lineIncGBP(it)))} inc VAT
                       </div>
                     </div>
                   </div>
@@ -297,15 +351,52 @@ export default function CartPage(){
 
       {/* Summary / Checkout */}
       <div className="card space-y-4">
+
+        {/* Coupon box (only if coupons exist) */}
+        {hasCoupons && (
+          <div className="border rounded-xl p-3 space-y-2">
+            <div className="font-medium">Have a coupon?</div>
+            {!appliedCoupon ? (
+              <div className="flex gap-2">
+                <input
+                  className="input flex-1"
+                  placeholder="Enter code"
+                  value={couponCode}
+                  onChange={e=>{ setCouponCode(e.target.value); setCouponError(''); }}
+                />
+                <button className="btn" onClick={tryApplyCoupon}>Apply</button>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <div className="text-sm">
+                  Applied: <span className="font-semibold">{appliedCoupon.code}</span>
+                  {' '}({appliedCoupon.type === 'fixed' ? `£${appliedCoupon.amount}` : `${appliedCoupon.amount}%`})
+                </div>
+                <button className="btn" onClick={()=>setAppliedCoupon(null)}>Remove</button>
+              </div>
+            )}
+            {couponError && <div className="text-sm text-red-600">{couponError}</div>}
+          </div>
+        )}
+
         <div className="border rounded-xl p-3 space-y-1 text-sm">
           <div className="flex justify-between">
             <span>Subtotal (ex VAT)</span>
             <span className="font-medium">{fmt(subtotalExDisp)}</span>
           </div>
+
+          {!!discountExGBP && (
+            <div className="flex justify-between text-green-700">
+              <span>Discount{appliedCoupon ? ` (${appliedCoupon.code})` : ''}</span>
+              <span className="font-medium">−{fmt(discountDisp)}</span>
+            </div>
+          )}
+
           <div className="flex justify-between">
             <span>VAT ({vatPercent}%)</span>
             <span className="font-medium">{fmt(vatAmountDisp)}</span>
           </div>
+
           <div className="flex justify-between">
             <span>Delivery</span>
             <span className="font-medium">

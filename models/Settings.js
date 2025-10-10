@@ -1,10 +1,24 @@
 // models/Settings.js
 import mongoose from 'mongoose';
 
+const CouponSchema = new mongoose.Schema({
+  code: { type: String, trim: true, uppercase: true, required: true, index: true },
+  type: { type: String, enum: ['percent', 'fixed'], required: true },
+  amount: { type: Number, required: true, min: 0 },
+  appliesTo: {
+    scope: { type: String, enum: ['all', 'categories', 'products'], default: 'all' },
+    ids:   { type: [String], default: [] }, // store ObjectId strings or slugs
+  },
+  validFrom: Date,
+  validTo: Date,
+  usageLimit: { type: Number, default: 0 }, // 0 = unlimited
+  usedCount:  { type: Number, default: 0 },
+  enabled:    { type: Boolean, default: true },
+}, { _id: true });
+
 const SettingsSchema = new mongoose.Schema({
   vatPercent: { type: Number, default: 20 },
 
-  // Currency (kept but UK-only is fine)
   baseCurrency: { type: String, default: 'GBP' },
   supportedCurrencies: { type: [String], default: ['GBP','EUR','USD'] },
   fx: {
@@ -15,25 +29,27 @@ const SettingsSchema = new mongoose.Schema({
     source: { type: String, default: 'manual' }
   },
 
-  // Shipping (you can keep UK-only values if that’s all you use)
   shipping: {
-    UK: { GBP: Number, EUR: Number, USD: Number },
-    EU: { GBP: Number, EUR: Number, USD: Number },
-    USA: { GBP: Number, EUR: Number, USD: Number }
+    UK:  { GBP: Number, EUR: Number, USD: Number },
+    EU:  { GBP: Number, EUR: Number, USD: Number },
+    USA: { GBP: Number, EUR: Number, USD: Number },
   },
 
-    // NEW: free shipping thresholds (per zone, GBP baseline)
+  // NEW: free delivery thresholds (GBP baseline)
   freeOverGBP: {
-    UK:  { type: Number, default: 0 },   // set 50 to enable
+    UK:  { type: Number, default: 0 },
     EU:  { type: Number, default: 0 },
     USA: { type: Number, default: 0 },
   },
 
-  // 🔥 NEW store info fields
+  // Store info
   storeName: { type: String, default: '' },
   supportEmail: { type: String, default: '' },
   storeAddress: { type: String, default: '' },
   contactNumber: { type: String, default: '' },
-},{ timestamps:true });
+
+  // NEW: coupons
+  coupons: { type: [CouponSchema], default: [] },
+}, { timestamps: true });
 
 export default mongoose.models.Settings || mongoose.model('Settings', SettingsSchema);
