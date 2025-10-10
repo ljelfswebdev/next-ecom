@@ -2,6 +2,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import VariantsBlock from '@/components/admin/VariantsBlock';
 
 const CLOUD_NAME = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
 const UPLOAD_PRESET = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET;
@@ -24,7 +25,7 @@ export default function EditProductPage(){
   const router = useRouter();
 
   const [form, setForm] = useState(null);
-  const [cats, setCats] = useState([]);            // ← categories list
+  const [cats, setCats] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -35,25 +36,30 @@ export default function EditProductPage(){
     (async ()=>{
       try {
         const [rProd, rCats] = await Promise.all([
-          fetch(`/api/admin/products/${id}`, { cache:'no-store' }),
+          // ⬇️ use by-id endpoint so we get variants and can PATCH it later
+          fetch(`/api/products/by-id/${id}`, { cache:'no-store' }),
           fetch('/api/admin/categories', { cache:'no-store' }),
         ]);
         if (!rProd.ok) throw new Error('Failed to load product');
+
         const p = await rProd.json();
         const catList = rCats.ok ? await rCats.json() : [];
         if (cancelled) return;
 
         setCats(Array.isArray(catList) ? catList : []);
         setForm({
+          _id: p._id,
           title: p.title || '',
           slug: p.slug || '',
           description: p.description || '',
           basePriceExVat: p.basePriceExVat || 0,
-          images: (p.images||[]).map(u => ({ url: typeof u === 'string' ? u : u.url })), // normalize
+          images: (p.images||[]).map(u => ({ url: typeof u === 'string' ? u : u.url })),
           sizesAvailable: p.sizesAvailable || [],
           colorsAvailable: p.colorsAvailable || [],
-          categoryIds: Array.isArray(p.categoryIds) ? p.categoryIds : [],                // ← bring in
+          categoryIds: Array.isArray(p.categoryIds) ? p.categoryIds : [],
           status: p.status || 'published',
+          // ⬇️ make sure variants are present in form state
+          variants: Array.isArray(p.variants) ? p.variants : [],
         });
       } catch (e) {
         alert(e.message || 'Error loading data');
@@ -100,15 +106,37 @@ export default function EditProductPage(){
     try {
       const payload = {
         ...form,
-        images: (form.images||[]).map(i => i.url ?? i),
+        images: (form.images || []).map(i => i.url ?? i),
+        variants: (form.variants || []).map(v => ({
+          ...v,
+          _id: v._id, // keep subdoc id if present (so updates don’t create duplicates)
+          sku: String(v.sku || '').trim().toUpperCase(),
+          barcode: v.barcode ? String(v.barcode).trim() : undefined,
+          options: {
+            size:  v?.options?.size  ?? v.size  ?? '',
+            color: v?.options?.color ?? v.color ?? '',
+          },
+          stock: Number.isFinite(+v.stock) ? +v.stock : 0,
+          priceExVatGBP:
+            v.priceExVatGBP === '' || v.priceExVatGBP == null
+              ? undefined
+              : +v.priceExVatGBP,
+        })),
       };
-      const r = await fetch(`/api/admin/products/${id}`, {
+
+      // ⬇️ PATCH the by-id endpoint
+      const r = await fetch(`/api/products/by-id/${id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type':'application/json' },
         body: JSON.stringify(payload),
       });
-      if (!r.ok) throw new Error('Update failed');
-      router.push('/admin/products'); // back to list
+
+      if (!r.ok) throw new Error(await r.text());
+      // If you want the canonical server version back into state:
+      // const saved = await r.json();
+      // setForm(f => ({ ...f, ...saved }));
+
+      alert('Saved');
     } catch (e) {
       alert(e.message || 'Error updating');
     } finally {
@@ -123,15 +151,38 @@ export default function EditProductPage(){
       <h1 className="text-xl font-semibold mb-3">Edit product</h1>
 
       <div className="space-y-2">
-        <input className="input" placeholder="Title"
-          value={form.title} onChange={e=>setForm({...form,title:e.target.value})} />
-        <input className="input" placeholder="Slug"
-          value={form.slug} onChange={e=>setForm({...form,slug:e.target.value})} />
-        <textarea className="input" placeholder="Description"
-          value={form.description} onChange={e=>setForm({...form,description:e.target.value})} />
-        <input className="input" type="number" step="0.01" placeholder="Base price ex VAT (GBP)"
+        <label className="label">Product Name</label>
+        <input
+          className="input"
+          placeholder="Title"
+          value={form.title}
+          onChange={e=>setForm({...form,title:e.target.value})}
+        />
+
+        <label className="label">Product Slug</label>
+        <input
+          className="input"
+          placeholder="Slug"
+          value={form.slug}
+          onChange={e=>setForm({...form,slug:e.target.value.replace(/^\//,'')})}
+        />
+
+        <label className="label">Product Description</label>
+        <textarea
+          className="input"
+          placeholder="Description"
+          value={form.description}
+          onChange={e=>setForm({...form,description:e.target.value})}
+        />
+
+        <label className="label">Product Price ex VAT (GBP)</label>
+        <input
+          className="input"
+          type="number"
+          step="0.01"
           value={form.basePriceExVat}
-          onChange={e=>setForm({...form,basePriceExVat:parseFloat(e.target.value||0)})} />
+          onChange={e=>setForm({...form,basePriceExVat:parseFloat(e.target.value||0)})}
+        />
 
         {/* Sizes */}
         <div>
@@ -139,9 +190,11 @@ export default function EditProductPage(){
           <div className="grid grid-cols-3 gap-2">
             {SIZE_OPTIONS.map(opt => (
               <label key={opt} className="flex items-center gap-2 text-sm border rounded-md px-2 py-1">
-                <input type="checkbox"
+                <input
+                  type="checkbox"
                   checked={(form.sizesAvailable||[]).includes(opt)}
-                  onChange={()=>toggleArrayValue('sizesAvailable', opt)} />
+                  onChange={()=>toggleArrayValue('sizesAvailable', opt)}
+                />
                 {opt}
               </label>
             ))}
@@ -154,9 +207,11 @@ export default function EditProductPage(){
           <div className="grid grid-cols-3 gap-2">
             {COLOR_OPTIONS.map(opt => (
               <label key={opt} className="flex items-center gap-2 text-sm border rounded-md px-2 py-1 capitalize">
-                <input type="checkbox"
+                <input
+                  type="checkbox"
                   checked={(form.colorsAvailable||[]).includes(opt)}
-                  onChange={()=>toggleArrayValue('colorsAvailable', opt)} />
+                  onChange={()=>toggleArrayValue('colorsAvailable', opt)}
+                />
                 {opt}
               </label>
             ))}
@@ -184,6 +239,9 @@ export default function EditProductPage(){
           )}
         </div>
 
+        {/* Variants (SKU/stock/price override) */}
+        <VariantsBlock form={form} setForm={setForm} />
+
         {/* Status */}
         <div>
           <label className="label">Status</label>
@@ -207,8 +265,13 @@ export default function EditProductPage(){
               {form.images.map((img, i)=>(
                 <div key={i} className="relative">
                   <img src={img.url} alt="" className="w-full h-24 object-cover rounded-lg border" />
-                  <button type="button" onClick={()=>removeImage(i)}
-                    className="absolute top-1 right-1 text-xs bg-white border rounded px-1">×</button>
+                  <button
+                    type="button"
+                    onClick={()=>removeImage(i)}
+                    className="absolute top-1 right-1 text-xs bg-white border rounded px-1"
+                  >
+                    ×
+                  </button>
                 </div>
               ))}
             </div>

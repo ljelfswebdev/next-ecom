@@ -1,62 +1,59 @@
 import { dbConnect } from '@/lib/db';
 import Product from '@/models/Product';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { NextResponse } from 'next/server';
 import mongoose from 'mongoose';
 
-async function assertStaff() {
-  const session = await getServerSession(authOptions);
-  if (!session || (session.user.role !== 'admin' && session.user.role !== 'staff')) {
-    return { res: new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403 }) };
-  }
-  return {};
+// normalize incoming variants to the schema shape
+function normalizeVariants(arr = []) {
+  return arr.map(v => ({
+    _id: v._id || new mongoose.Types.ObjectId(),
+    sku: (v.sku || '').trim().toUpperCase() || undefined,
+    barcode: (v.barcode || '').trim() || undefined,
+    options: {
+      size:  v?.options?.size  ?? v.size  ?? '',
+      color: v?.options?.color ?? v.color ?? '',
+    },
+    stock: Number.isFinite(+v.stock) ? +v.stock : 0,
+    priceExVatGBP:
+      v.priceExVatGBP === '' || v.priceExVatGBP == null
+        ? undefined
+        : +v.priceExVatGBP,
+  }));
 }
 
 export async function GET(_req, { params }) {
-  const guard = await assertStaff(); if (guard.res) return guard.res;
   await dbConnect();
-  try {
-    const { id } = params;
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return new Response(JSON.stringify({ error: 'Invalid id' }), { status: 400 });
-    }
-    const p = await Product.findById(id);
-    if (!p) return new Response(JSON.stringify({ error: 'Not found' }), { status: 404 });
-    return new Response(JSON.stringify(p), { status: 200 });
-  } catch (e) {
-    return new Response(JSON.stringify({ error: e.message || 'Server error' }), { status: 500 });
-  }
+  const doc = await Product.findById(params.id).lean();
+  if (!doc) return new NextResponse('Not found', { status: 404 });
+  return NextResponse.json(doc);
 }
 
 export async function PATCH(req, { params }) {
-  const guard = await assertStaff(); if (guard.res) return guard.res;
   await dbConnect();
-  try {
-    const { id } = params;
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return new Response(JSON.stringify({ error: 'Invalid id' }), { status: 400 });
-    }
-    const body = await req.json();
-    const updated = await Product.findByIdAndUpdate(id, body, { new: true });
-    if (!updated) return new Response(JSON.stringify({ error: 'Not found' }), { status: 404 });
-    return new Response(JSON.stringify(updated), { status: 200 });
-  } catch (e) {
-    return new Response(JSON.stringify({ error: e.message || 'Server error' }), { status: 500 });
-  }
-}
+  const body = await req.json();
 
-export async function DELETE(_req, { params }) {
-  const guard = await assertStaff(); if (guard.res) return guard.res;
-  await dbConnect();
-  try {
-    const { id } = params;
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return new Response(JSON.stringify({ error: 'Invalid id' }), { status: 400 });
-    }
-    const deleted = await Product.findByIdAndDelete(id);
-    if (!deleted) return new Response(JSON.stringify({ error: 'Not found' }), { status: 404 });
-    return new Response(JSON.stringify({ ok: true }), { status: 200 });
-  } catch (e) {
-    return new Response(JSON.stringify({ error: e.message || 'Server error' }), { status: 500 });
+  const update = {
+    title: body.title,
+    slug: body.slug?.replace(/^\//,''),
+    description: body.description ?? '',
+    images: Array.isArray(body.images) ? body.images : [],
+    sizesAvailable: Array.isArray(body.sizesAvailable) ? body.sizesAvailable : [],
+    colorsAvailable: Array.isArray(body.colorsAvailable) ? body.colorsAvailable : [],
+    basePriceExVat: Number(body.basePriceExVat) || 0,
+    categoryIds: Array.isArray(body.categoryIds) ? body.categoryIds : [],
+    status: body.status === 'draft' ? 'draft' : 'published',
+  };
+
+  if (Array.isArray(body.variants)) {
+    update.variants = normalizeVariants(body.variants);
   }
+
+  const doc = await Product.findByIdAndUpdate(
+    params.id,
+    update,
+    { new: true, runValidators: true }
+  );
+
+  if (!doc) return new NextResponse('Not found', { status: 404 });
+  return NextResponse.json(doc);
 }

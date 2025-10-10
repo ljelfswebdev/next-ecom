@@ -7,6 +7,12 @@ import Link from 'next/link';
 const SIZE_OPTIONS = ['XS','S','M','L','XL','XXL'];
 const COLOR_OPTIONS = ['red','blue','green'];
 
+const isOutOfStock = (p) => {
+ const vs = Array.isArray(p?.variants) ? p.variants : [];
+ if (!vs.length) return false; // no variants → assume in stock (you can change this rule)
+ return vs.reduce((sum, v) => sum + (v?.stock || 0), 0) <= 0;
+};
+
 export default function ShopPage(){
   const router = useRouter();
   const sp = useSearchParams();
@@ -134,12 +140,19 @@ export default function ShopPage(){
         ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {products.map(p=>(
-              <Link key={p._id} href={`/product/${p.slug}`} className="block border rounded-2xl p-3 hover:shadow-sm">
+              <Link key={p._id} href={`/product/${p.slug}`} className="block relative border rounded-2xl p-3 hover:shadow-sm">
                 {p.images?.[0] ? (
                   <img src={p.images[0]} alt={p.title} className="w-full aspect-[4/3] object-cover rounded-xl mb-2" />
                 ) : (
                   <div className="w-full aspect-[4/3] rounded-xl bg-gray-100 mb-2" />
                 )}
+                  {isOutOfStock(p) && (
+                   <span
+                      className="absolute top-2 left-2 text-[11px] uppercase tracking-wide bg-black text-white px-2 py-1 rounded-md"
+                    >
+                      Out of stock
+                    </span>
+                  )}
                 <div className="font-medium">{p.title}</div>
                 <div className="text-sm text-gray-500">From £{Number(p.basePriceExVat).toFixed(2)} ex VAT</div>
               </Link>

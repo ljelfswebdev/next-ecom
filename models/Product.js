@@ -1,46 +1,91 @@
 // models/Product.js
-import mongoose, { Schema } from 'mongoose';
+import mongoose from 'mongoose';
 
-const VariantSchema = new Schema({
-  size:  String,
-  color: String,
-  sku:   String,
-  stock: { type:Number, default: 0 },
-}, { _id:false });
+const { Schema, models, model } = mongoose;
 
-const ProductSchema = new Schema({
-  title:       { type: String, required: true },
-  slug:        { type: String, required: true, unique: true, index: true },
-  description: { type: String, default: '' },
-  images:      { type: [String], default: [] },
+/** --- Variant sub-schemas --- */
+const VariantOptionsSchema = new Schema(
+  {
+    size:  { type: String, trim: true, default: '' },
+    color: { type: String, trim: true, default: '' },
+  },
+  { _id: false }
+);
 
-  // base price in GBP, ex VAT
-  basePriceExVat: { type: Number, required: true },
+const VariantSchema = new Schema(
+  {
+    sku: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      // Make SKU quick to look up. If you want global uniqueness, keep unique:true.
+      // If you want per-product uniqueness only, remove `unique` here and enforce in code.
+      unique: true,
+      sparse: true,
+      index: true,
+    },
+    barcode: { type: String, trim: true },
+    options:  { type: VariantOptionsSchema, default: () => ({}) },
+    stock:    { type: Number, default: 0, min: 0 },          // authoritative stock
+    priceExVatGBP: { type: Number },                         // optional override (falls back to product.basePriceExVat)
+  },
+  { _id: true }
+);
 
-  // SIMPLE attributes
-  sizesAvailable:  { type: [String], default: [] },  // ['XS','S',...]
-  colorsAvailable: { type: [String], default: [] },  // ['red','blue','green']
+/** --- Product schema --- */
+const ProductSchema = new Schema(
+  {
+    title: { type: String, required: true, trim: true },
+    slug:  { type: String, required: true, unique: true, index: true, trim: true },
 
-  // OPTIONAL variant matrix (kept for future SKUs/inventory)
-  variants: { type: [VariantSchema], default: [] },
+    description: { type: String, default: '' },
+    images:      { type: [String], default: [] },
 
-  // NEW: categories (many-to-many)
-  categoryIds: [{ type: Schema.Types.ObjectId, ref: 'Category', index: true }],
+    // For selectors; UI can also derive from variants
+    sizesAvailable:  { type: [String], default: [] },
+    colorsAvailable: { type: [String], default: [] },
 
-  // (old string category kept for backward-compat; no longer used for filtering)
-  category: { type: String },
+    basePriceExVat: { type: Number, required: true, default: 0 }, // GBP baseline
 
-  // ratings
-  ratingAvg:   { type: Number, default: 0 },
-  ratingCount: { type: Number, default: 0 },
+    variants: { type: [VariantSchema], default: [] },
 
-  status: { type: String, enum:['draft','published'], default: 'published' },
-}, { timestamps: true });
+    categoryIds: [{ type: Schema.Types.ObjectId, ref: 'Category' }],
 
-// helpful indexes for sorting/filtering
-ProductSchema.index({ title: 1 });
-ProductSchema.index({ basePriceExVat: 1 });
-ProductSchema.index({ sizesAvailable: 1 });
-ProductSchema.index({ colorsAvailable: 1 });
+    status: { type: String, enum: ['draft','published'], default: 'published' },
 
-export default mongoose.models.Product || mongoose.model('Product', ProductSchema);
+    // optional SEO
+    metaTitle:       { type: String, trim: true },
+    metaDescription: { type: String, trim: true },
+  },
+  { timestamps: true }
+);
+
+/** --- Indexes --- */
+// basic text search for title/description
+ProductSchema.index({ title: 'text', description: 'text' });
+
+/** --- Helpers --- */
+// Find the first variant matching the provided options (any blank filter is ignored)
+ProductSchema.methods.findVariantByOptions = function (size, color) {
+  return (this.variants || []).find(v =>
+    (size  ? v?.options?.size  === size  : true) &&
+    (color ? v?.options?.color === color : true)
+  );
+};
+
+// Safer getter to compute unit price (ex VAT) given a variantId (optional)
+ProductSchema.methods.getUnitPriceExVat = function (variantId) {
+  if (variantId) {
+    const v = (this.variants || []).find(x => String(x._id) === String(variantId));
+    if (v && typeof v.priceExVatGBP === 'number') return v.priceExVatGBP;
+  }
+  return this.basePriceExVat || 0;
+};
+
+// Optional: normalize slug on set (useful if you allow editing titles)
+ProductSchema.pre('validate', function(next){
+  if (this.slug) this.slug = String(this.slug).replace(/^\//,'').trim();
+  next();
+});
+
+export default models.Product || model('Product', ProductSchema);

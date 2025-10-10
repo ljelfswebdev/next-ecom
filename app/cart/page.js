@@ -1,3 +1,4 @@
+// app/cart/page.js
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import { signIn, signOut, useSession } from 'next-auth/react';
@@ -8,12 +9,12 @@ export default function CartPage(){
   const { data: session } = useSession();
 
   // cart + settings
-  const [items, setItems] = useState([]);
+  const [items, setItems] = useState([]); // each will become { ..., maxStock?: number }
   const [currency, setCurrency] = useState('GBP');
   const [zone, setZone] = useState('UK');
   const [vatPercent, setVatPercent] = useState(20);
   const [fx, setFx] = useState({ GBP:1, EUR:1.15, USD:1.28 });
-  const [shippingTable, setShippingTable] = useState({}); // { UK:{GBP,EUR,USD}, EU:{...}, USA:{...} }
+  const [shippingTable, setShippingTable] = useState({});
   const [status, setStatus] = useState('');
 
   // checkout UX mode
@@ -31,12 +32,13 @@ export default function CartPage(){
   const [loginPassword, setLoginPassword] = useState('');
   const [loggingIn, setLoggingIn] = useState(false);
 
-  // load cart + SETTINGS + prefill from account (if logged in)
+  // ---- load cart + SETTINGS + enrich with stock caps ----
   useEffect(() => {
-    // cart
-    setItems(JSON.parse(localStorage.getItem('cart') || '[]'));
+    // 1) base cart from localStorage
+    const local = JSON.parse(localStorage.getItem('cart') || '[]');
+    setItems(local);
 
-    // settings (public)
+    // 2) settings
     (async () => {
       try {
         const r = await fetch('/api/settings', { cache: 'no-store' });
@@ -47,9 +49,42 @@ export default function CartPage(){
       } catch {}
     })();
 
-    // account prefill
-    const primeFromAccount = async ()=>{
+    // 3) enrich each cart line with maxStock from server
+    (async () => {
       try {
+        // fetch each product (dedup by productId)
+        const ids = [...new Set(local.map(l => l.productId).filter(Boolean))];
+        const byId = new Map();
+
+        await Promise.all(ids.map(async (pid) => {
+          const r = await fetch(`/api/products/by-id/${pid}`, { cache: 'no-store' });
+          if (r.ok) byId.set(pid, await r.json());
+        }));
+
+        const withCaps = local.map(line => {
+          const product = byId.get(line.productId);
+          let maxStock = undefined;
+          if (product && Array.isArray(product.variants) && line.variantId) {
+            const v = product.variants.find(x => String(x._id) === String(line.variantId));
+            maxStock = Math.max(0, Number(v?.stock ?? 0));
+          }
+          // clamp any existing qty
+          const qty = Math.max(1, Math.min(Number(line.qty || 1), Number.isFinite(maxStock) ? maxStock : Infinity));
+          return { ...line, maxStock, qty };
+        });
+
+        setItems(withCaps);
+        localStorage.setItem('cart', JSON.stringify(withCaps));
+      } catch (e) {
+        // if something fails, we just keep the local cart as-is
+        console.warn('Failed to enrich cart with stock caps', e);
+      }
+    })();
+
+    // account prefill
+    (async ()=>{
+      try {
+        if (!session?.user) { setMode('guest'); return; }
         const r = await fetch('/api/me', { cache:'no-store' });
         if (!r.ok) return;
         const me = await r.json();
@@ -62,26 +97,26 @@ export default function CartPage(){
         setShipping(ship);
         setSameAsBilling(JSON.stringify(bill) === JSON.stringify(ship));
       } catch {}
-    };
-
-    if (session?.user) setTimeout(primeFromAccount, 0);
-    else setMode('guest');
+    })();
   }, [session?.user]);
 
-  // cart actions
+  // ---- cart actions ----
+  const persist = (arr)=>{ setItems(arr); localStorage.setItem('cart', JSON.stringify(arr)); };
+
   const remove = (i) => {
     const c = items.slice();
     c.splice(i, 1);
-    setItems(c);
-    localStorage.setItem('cart', JSON.stringify(c));
+    persist(c);
   };
 
-  const setQtyAt = (index, nextQty) => {
-    const qty = Math.max(1, parseInt(nextQty || '1', 10));
+  const setQtyAt = (index, nextQtyRaw) => {
+    const next = Math.max(1, parseInt(nextQtyRaw || '1', 10));
+    const line = items[index];
+    const cap = Number.isFinite(line?.maxStock) ? line.maxStock : Infinity;
+    const qty = Math.min(next, cap);
     const c = items.slice();
-    c[index] = { ...c[index], qty };
-    setItems(c);
-    localStorage.setItem('cart', JSON.stringify(c));
+    c[index] = { ...line, qty };
+    persist(c);
   };
 
   // FX helpers
@@ -111,7 +146,7 @@ export default function CartPage(){
     [subtotalExGBP, vatPercent]
   );
 
-  // shipping: prefer explicit amount for zone+currency; fallback to converting GBP
+  // shipping (GBP base)
   const shippingGBPBase = useMemo(() => {
     const val = shippingTable?.[zone]?.GBP;
     return typeof val === 'number' ? val : 0;
@@ -128,7 +163,7 @@ export default function CartPage(){
     [subtotalExGBP, vatAmountGBP, shippingGBPBase]
   );
 
-  // display currency totals: compute from parts (not by converting the grand total) for clarity
+  // display currency totals
   const subtotalExDisp = toDisplay(subtotalExGBP);
   const vatAmountDisp  = toDisplay(vatAmountGBP);
   const totalIncDisp   = +(subtotalExDisp + vatAmountDisp + shippingDisp).toFixed(2);
@@ -186,59 +221,73 @@ export default function CartPage(){
           <p>Your cart is empty.</p>
         ) : (
           <ul className="divide-y">
-            {items.map((it, i) => (
-              <li key={i} className="py-3 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  {it.image ? (
-                    <img src={it.image} alt={it.title} className="w-14 h-14 object-cover rounded-lg border" />
-                  ) : (
-                    <div className="w-14 h-14 rounded-lg border bg-gray-100" />
-                  )}
-                  <div>
-                    <div className="font-medium">{it.title}</div>
+            {items.map((it, i) => {
+              const cap = Number.isFinite(it.maxStock) ? it.maxStock : undefined;
+              const atCap = cap !== undefined && (it.qty || 1) >= cap;
+              const oos = cap === 0;
+              return (
+                <li key={i} className="py-3 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    {it.image ? (
+                      <img src={it.image} alt={it.title} className="w-14 h-14 object-cover rounded-lg border" />
+                    ) : (
+                      <div className="w-14 h-14 rounded-lg border bg-gray-100" />
+                    )}
+                    <div>
+                      <div className="font-medium">
+                        {it.title}
+                        {oos && <span className="ml-2 text-[11px] uppercase bg-black text-white px-1.5 py-0.5 rounded">Out of stock</span>}
+                      </div>
 
-                    {/* qty controls */}
-                    <div className="flex items-center gap-2 mt-1">
-                      <button className="px-2 py-1 border rounded-lg"
-                        onClick={() => setQtyAt(i, (it.qty || 1) - 1)}
-                        disabled={(it.qty || 1) <= 1}
-                        aria-label="Decrease quantity">–</button>
-                      <input
-                        type="number"
-                        className="w-16 input"
-                        min={1}
-                        value={it.qty || 1}
-                        onChange={(e) => setQtyAt(i, e.target.value)}
-                      />
-                      <button className="px-2 py-1 border rounded-lg"
-                        onClick={() => setQtyAt(i, (it.qty || 1) + 1)}
-                        aria-label="Increase quantity">+</button>
-                      <span className="text-sm text-gray-500">
-                        {it.variant?.size && <> • {it.variant.size}</>}
-                        {it.variant?.color && <> • {it.variant.color}</>}
-                      </span>
-                    </div>
+                      {/* qty controls */}
+                      <div className="flex items-center gap-2 mt-1">
+                        <button className="px-2 py-1 border rounded-lg"
+                          onClick={() => setQtyAt(i, (it.qty || 1) - 1)}
+                          disabled={(it.qty || 1) <= 1}
+                          aria-label="Decrease quantity">–</button>
+                        <input
+                          type="number"
+                          className="w-16 input"
+                          min={1}
+                          max={cap ?? undefined}
+                          value={it.qty || 1}
+                          onChange={(e) => setQtyAt(i, e.target.value)}
+                        />
+                        <button className="px-2 py-1 border rounded-lg"
+                          onClick={() => setQtyAt(i, (it.qty || 1) + 1)}
+                          disabled={oos || atCap}
+                          aria-label="Increase quantity">+</button>
+                        <span className="text-sm text-gray-500">
+                          {it.variant?.size && <> • {it.variant.size}</>}
+                          {it.variant?.color && <> • {it.variant.color}</>}
+                        </span>
+                      </div>
 
-                    {/* per-item prices in selected currency */}
-                    <div className="text-xs text-gray-500 mt-1">
-                      Unit: {fmt(unitExDisp(it))} ex VAT • {fmt(unitIncDisp(it))} inc VAT
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      Line: {fmt(lineExDisp(it))} ex VAT • {fmt(lineIncDisp(it))} inc VAT
+                      {/* stock hint */}
+                      {cap !== undefined && cap > 0 && (
+                        <div className="text-xs text-gray-500 mt-0.5">Only {cap} left</div>
+                      )}
+
+                      {/* per-item prices in selected currency */}
+                      <div className="text-xs text-gray-500 mt-1">
+                        Unit: {fmt(unitExDisp(it))} ex VAT • {fmt(unitIncDisp(it))} inc VAT
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        Line: {fmt(lineExDisp(it))} ex VAT • {fmt(lineIncDisp(it))} inc VAT
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                <button className="text-sm underline" onClick={() => remove(i)}>Remove</button>
-              </li>
-            ))}
+                  <button className="text-sm underline" onClick={() => remove(i)}>Remove</button>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
 
       {/* Summary / Checkout */}
       <div className="card space-y-4">
-        {/* Totals in selected currency */}
         <div className="border rounded-xl p-3 space-y-1 text-sm">
           <div className="flex justify-between">
             <span>Subtotal (ex VAT)</span>
@@ -258,23 +307,6 @@ export default function CartPage(){
           </div>
         </div>
 
-        {/* Currency / Zone */}
-        {/* <div className="grid grid-cols-2 gap-2">
-          <div>
-            <label className="label">Currency</label>
-            <select className="input" value={currency} onChange={e=>setCurrency(e.target.value)}>
-              <option>GBP</option><option>EUR</option><option>USD</option>
-            </select>
-          </div>
-          <div>
-            <label className="label">Shipping Zone</label>
-            <select className="input" value={zone} onChange={e=>setZone(e.target.value)}>
-              <option>UK</option><option>EU</option><option>USA</option>
-            </select>
-          </div>
-        </div> */}
-
-        {/* Mode selector */}
         <div className="flex gap-2">
           <button
             className={`btn w-1/2 ${mode==='guest' ? 'btn-primary' : 'btn-secondary'}`}
@@ -294,7 +326,6 @@ export default function CartPage(){
           )}
         </div>
 
-        {/* Mode content */}
         {mode === 'login' && !session?.user && (
           <div className="border rounded-xl p-3 space-y-2">
             <div>

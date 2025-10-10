@@ -243,6 +243,12 @@ export default function AdminProductsPage(){
                     </div>
                   )}
                 </div>
+                {(p.variants?.length>0) && (
+                  <div className="text-xs text-gray-500 mt-1">
+                    {p.variants.slice(0,3).map(v => `${v.sku}:${v.stock}`).join(' • ')}
+                    {p.variants.length>3 ? ' …' : ''}
+                  </div>
+                )}
 
                 <div className="flex flex-col gap-2 shrink-0">
                   <Link href={`/product/${p.slug}`} className="btn" target="_blank" rel="noreferrer">
